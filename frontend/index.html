@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meme Coin Volatility Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">MCT</span>
+      <span class="brand-name">meme&nbsp;coin&nbsp;tracker</span>
+    </div>
+    <div class="status-line">
+      <span id="conn-dot" class="dot dot-off"></span>
+      <span id="conn-text">connecting…</span>
+      <span class="sep">/</span>
+      <span id="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="disclaimer">
+      Rankings reflect statistical volatility &amp; momentum, liquidity-weighted. Not financial advice.
+    </section>
+
+    <section class="controls">
+      <label>min score
+        <input id="min-score" type="range" min="0" max="100" value="0" />
+        <output id="min-score-out">0</output>
+      </label>
+      <label>rows
+        <select id="limit">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+        </select>
+      </label>
+      <button id="refresh-btn">refresh</button>
+    </section>
+
+    <table class="board" id="board">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>symbol</th>
+          <th>chain</th>
+          <th>price</th>
+          <th>volatility</th>
+          <th>momentum</th>
+          <th>liquidity</th>
+          <th>composite</th>
+        </tr>
+      </thead>
+      <tbody id="board-body">
+        <tr><td colspan="8" class="empty">loading…</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <footer>
+    <span>updates every 30s · data: coingecko + dexscreener</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
