@@ -75,7 +75,7 @@ def clear_overrides():
 
 
 class TestHealthEndpoint:
-    def test_health_ok_when_db_reachable(self):
+    def test_health_ok_when_db_reachable(self, monkeypatch):
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock(return_value=None)
 
@@ -83,9 +83,12 @@ class TestHealthEndpoint:
         mock_ctx.__aenter__.return_value = mock_conn
         mock_ctx.__aexit__.return_value = None
 
+        fake_engine = MagicMock()
+        fake_engine.connect = MagicMock(return_value=mock_ctx)
+
         import main as main_module
 
-        main_module.engine.connect = MagicMock(return_value=mock_ctx)
+        monkeypatch.setattr(main_module, "engine", fake_engine)
 
         client = TestClient(app)
         resp = client.get("/health")
@@ -95,13 +98,17 @@ class TestHealthEndpoint:
         assert body["status"] == "ok"
         assert body["database"] == "ok"
 
-    def test_health_reports_db_unreachable_without_crashing(self):
-        import main as main_module
+    def test_health_reports_db_unreachable_without_crashing(self, monkeypatch):
+        fake_engine = MagicMock()
 
         def raise_error(*args, **kwargs):
             raise ConnectionRefusedError("db down")
 
-        main_module.engine.connect = raise_error
+        fake_engine.connect = raise_error
+
+        import main as main_module
+
+        monkeypatch.setattr(main_module, "engine", fake_engine)
 
         client = TestClient(app)
         resp = client.get("/health")

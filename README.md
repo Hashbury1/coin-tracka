@@ -1,4 +1,4 @@
-# Coin-Tracka
+# Meme Coin Volatility Tracker
 
 A production-style, self-hosted system that ingests real-time crypto market data,
 scores tokens on volatility/momentum/liquidity, and surfaces a ranked dashboard.
@@ -115,10 +115,13 @@ is a deliberate design choice, and a good thing to walk through in an interview.
 2. ✅ Scoring worker → TimescaleDB
 3. ✅ FastAPI read layer
 4. ✅ Dashboard
-5. ✅ Tests + GitHub Actions CI
-6. ⬜ Terraform apply to a real cloud target (AWS/GCP) + CD stage
-7. ⬜ Observability: Prometheus + Grafana + alerting
-8. ⬜ Social sentiment signal (Reddit/Twitter mention velocity)
+5. ✅ Tests + GitHub Actions CI (unit tests + real docker-compose smoke test)
+6. ✅ Stateless scoring worker (reads its rolling window from TimescaleDB
+   each cycle instead of an in-memory buffer — safe to restart or scale
+   to N replicas with zero coordination)
+7. ⬜ Terraform apply to a real cloud target (AWS/GCP) + CD stage
+8. ⬜ Observability: Prometheus + Grafana + alerting
+9. ⬜ Social sentiment signal (Reddit/Twitter mention velocity)
 
 ## Security notes
 

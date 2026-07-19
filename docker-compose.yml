@@ -3,7 +3,6 @@ version: "3.9"
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
-    container_name: meme_timescaledb
     restart: unless-stopped
     env_file: .env
     environment:
@@ -23,7 +22,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: meme_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -35,7 +33,6 @@ services:
 
   ingestion:
     build: ./services/ingestion
-    container_name: meme_ingestion
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -44,7 +41,6 @@ services:
 
   scoring:
     build: ./services/scoring
-    container_name: meme_scoring
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -55,7 +51,6 @@ services:
 
   api:
     build: ./services/api
-    container_name: meme_api
     restart: unless-stopped
     env_file: .env
     ports:
@@ -68,7 +63,6 @@ services:
 
   frontend:
     image: nginx:alpine
-    container_name: meme_frontend
     restart: unless-stopped
     ports:
       - "8080:80"

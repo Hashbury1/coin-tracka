@@ -1,8 +1,7 @@
 import asyncio
+import itertools
 import json
 import os
-import time
-from collections import defaultdict, deque
 from datetime import datetime, timezone
 
 import asyncpg
@@ -28,15 +27,13 @@ DATABASE_URL = os.getenv(
 
 MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "20000"))
 SCORING_INTERVAL_SECONDS = int(os.getenv("SCORING_INTERVAL_SECONDS", "30"))
-WINDOW_MAXLEN = 120  # rolling buffer size per token (in-memory; see README for prod notes)
 
-# In-memory rolling buffers: token_id -> deque of (timestamp, price, volume)
-# NOTE: this resets on worker restart. For a production deployment this
-# should instead read the trailing window from TimescaleDB directly
-# (e.g. via a continuous aggregate) so scoring is stateless and horizontally
-# scalable. Kept in-memory here to keep the local demo simple and fast.
-buffers: dict[str, deque] = defaultdict(lambda: deque(maxlen=WINDOW_MAXLEN))
-token_meta: dict[str, dict] = {}
+# How far back to look when scoring each token. This is a rolling window
+# read straight from TimescaleDB on every cycle, rather than an in-memory
+# buffer - which means this worker holds zero state between cycles. Restart
+# it, scale it to N replicas, kill -9 it mid-cycle: none of that loses data
+# or requires coordination, because the source of truth is always the DB.
+SCORING_WINDOW_MINUTES = int(os.getenv("SCORING_WINDOW_MINUTES", "60"))
 
 
 async def ensure_consumer_group(redis_client: redis.Redis) -> None:
@@ -75,6 +72,12 @@ async def write_tick(pool: asyncpg.Pool, tick: dict) -> None:
 
 
 async def consume_loop(pool: asyncpg.Pool, redis_client: redis.Redis) -> None:
+    """
+    Consumes raw ticks off the Redis stream and persists them to TimescaleDB.
+    This loop holds no in-memory state - it only writes. Scoring reads its
+    own window straight from the DB in score_loop below, so this loop can
+    crash, restart, or run as multiple replicas without any coordination.
+    """
     await ensure_consumer_group(redis_client)
     log.info("scoring_worker_consuming", stream=STREAM_NAME, group=CONSUMER_GROUP)
 
@@ -95,13 +98,6 @@ async def consume_loop(pool: asyncpg.Pool, redis_client: redis.Redis) -> None:
             for msg_id, fields in messages:
                 try:
                     tick = json.loads(fields["data"])
-                    token_id = tick["token_id"]
-                    token_meta[token_id] = tick
-
-                    buffers[token_id].append(
-                        (time.time(), tick["price_usd"], tick.get("volume_24h_usd", 0))
-                    )
-
                     await ensure_token(pool, tick)
                     await write_tick(pool, tick)
                     await redis_client.xack(STREAM_NAME, CONSUMER_GROUP, msg_id)
@@ -109,38 +105,70 @@ async def consume_loop(pool: asyncpg.Pool, redis_client: redis.Redis) -> None:
                     log.error("message_processing_failed", msg_id=msg_id, error=str(e))
 
 
+async def fetch_recent_ticks(pool: asyncpg.Pool) -> list[asyncpg.Record]:
+    """
+    Pulls every tick within the scoring window across all tokens in a single
+    query, ordered so ticks for the same token are contiguous - this lets us
+    group them in Python with itertools.groupby in one pass instead of
+    issuing a separate query per token.
+    """
+    return await pool.fetch(
+        """
+        SELECT token_id, time, price_usd, volume_24h_usd, liquidity_usd
+        FROM ticks
+        WHERE time > now() - ($1 * INTERVAL '1 minute')
+        ORDER BY token_id, time ASC
+        """,
+        SCORING_WINDOW_MINUTES,
+    )
+
+
 async def score_loop(pool: asyncpg.Pool) -> None:
-    """Periodically recompute composite scores for every token with buffered data."""
+    """
+    Periodically recomputes composite scores for every token that has
+    ticks within the trailing window, reading straight from TimescaleDB
+    each cycle - no in-memory state carried between iterations.
+    """
     while True:
         await asyncio.sleep(SCORING_INTERVAL_SECONDS)
         now = datetime.now(timezone.utc)
         scored = 0
 
-        for token_id, buf in list(buffers.items()):
-            if len(buf) < 2:
+        try:
+            rows = await fetch_recent_ticks(pool)
+        except Exception as e:  # noqa: BLE001 - a slow/unreachable DB shouldn't kill the loop
+            log.error("fetch_recent_ticks_failed", error=str(e))
+            continue
+
+        for token_id, group_iter in itertools.groupby(rows, key=lambda r: r["token_id"]):
+            group = list(group_iter)
+            if len(group) < 2:
                 continue
 
-            prices = [p for _, p, _ in buf]
-            volumes = [v for _, _, v in buf]
-            liquidity = token_meta.get(token_id, {}).get("liquidity_usd", 0)
+            prices = [r["price_usd"] for r in group]
+            volumes = [r["volume_24h_usd"] or 0 for r in group]
+            liquidity = group[-1]["liquidity_usd"] or 0  # most recent liquidity reading
 
             result = score_token(prices, volumes, liquidity, MIN_LIQUIDITY_USD)
 
-            await pool.execute(
-                """
-                INSERT INTO scores (time, token_id, volatility_score, momentum_score,
-                                     liquidity_score, composite_score, window_label)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT DO NOTHING
-                """,
-                now, token_id,
-                result["volatility_score"], result["momentum_score"],
-                result["liquidity_score"], result["composite_score"],
-                "rolling",
-            )
-            scored += 1
+            try:
+                await pool.execute(
+                    """
+                    INSERT INTO scores (time, token_id, volatility_score, momentum_score,
+                                         liquidity_score, composite_score, window_label)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    now, token_id,
+                    result["volatility_score"], result["momentum_score"],
+                    result["liquidity_score"], result["composite_score"],
+                    "rolling",
+                )
+                scored += 1
+            except Exception as e:  # noqa: BLE001 - one bad write shouldn't kill the cycle
+                log.error("score_write_failed", token_id=token_id, error=str(e))
 
-        log.info("scoring_cycle_complete", tokens_scored=scored)
+        log.info("scoring_cycle_complete", tokens_scored=scored, window_minutes=SCORING_WINDOW_MINUTES)
 
 
 def _log_retry(retry_state):
