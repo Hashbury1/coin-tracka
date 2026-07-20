@@ -16,3 +16,4 @@ build/
 htmlcov/
 .idea/
 .vscode/
+.env.example
