@@ -2,6 +2,7 @@ import asyncio
 import itertools
 import json
 import os
+import time
 from datetime import datetime, timezone
 
 import asyncpg
@@ -10,6 +11,15 @@ import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from scorer import score_token
+from metrics import (
+    DB_CONNECT_RETRIES,
+    LAST_SUCCESSFUL_CYCLE_TIMESTAMP,
+    MESSAGE_PROCESSING_ERRORS,
+    SCORING_CYCLE_DURATION,
+    TICKS_CONSUMED,
+    TOKENS_SCORED,
+    start_metrics_server,
+)
 
 structlog.configure(processors=[structlog.processors.JSONRenderer()])
 log = structlog.get_logger(__name__)
@@ -101,7 +111,9 @@ async def consume_loop(pool: asyncpg.Pool, redis_client: redis.Redis) -> None:
                     await ensure_token(pool, tick)
                     await write_tick(pool, tick)
                     await redis_client.xack(STREAM_NAME, CONSUMER_GROUP, msg_id)
+                    TICKS_CONSUMED.inc()
                 except Exception as e:  # noqa: BLE001 - one bad message shouldn't kill the worker
+                    MESSAGE_PROCESSING_ERRORS.inc()
                     log.error("message_processing_failed", msg_id=msg_id, error=str(e))
 
 
@@ -133,6 +145,7 @@ async def score_loop(pool: asyncpg.Pool) -> None:
         await asyncio.sleep(SCORING_INTERVAL_SECONDS)
         now = datetime.now(timezone.utc)
         scored = 0
+        cycle_start = time.monotonic()
 
         try:
             rows = await fetch_recent_ticks(pool)
@@ -165,13 +178,17 @@ async def score_loop(pool: asyncpg.Pool) -> None:
                     "rolling",
                 )
                 scored += 1
+                TOKENS_SCORED.inc()
             except Exception as e:  # noqa: BLE001 - one bad write shouldn't kill the cycle
                 log.error("score_write_failed", token_id=token_id, error=str(e))
 
+        SCORING_CYCLE_DURATION.observe(time.monotonic() - cycle_start)
+        LAST_SUCCESSFUL_CYCLE_TIMESTAMP.set(time.time())
         log.info("scoring_cycle_complete", tokens_scored=scored, window_minutes=SCORING_WINDOW_MINUTES)
 
 
 def _log_retry(retry_state):
+    DB_CONNECT_RETRIES.inc()
     log.warning(
         "db_pool_connect_retry",
         attempt=retry_state.attempt_number,
@@ -196,6 +213,7 @@ async def create_db_pool() -> asyncpg.Pool:
 
 
 async def main() -> None:
+    start_metrics_server(9102)
     pool = await create_db_pool()
     redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 

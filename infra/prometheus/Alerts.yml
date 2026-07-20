@@ -1,0 +1,58 @@
+groups:
+  - name: meme-tracker-alerts
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Prometheus has not been able to scrape {{ $labels.job }} for 1 minute."
+
+      - alert: IngestionNoTicksPushed
+        expr: increase(ingestion_ticks_pushed_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ingestion worker has pushed no ticks in 5 minutes"
+          description: "Either every upstream source is failing, or the poll loop has stalled. Check ingestion_fetch_errors_total by source."
+
+      - alert: ScoringStalled
+        expr: (time() - scoring_last_successful_cycle_timestamp_seconds) > 180
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Scoring worker has not completed a cycle in over 3 minutes"
+          description: "The API will start serving stale rankings. Check scoring worker logs for DB or Redis connectivity issues."
+
+      - alert: HighFetchErrorRate
+        expr: rate(ingestion_fetch_errors_total[10m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated fetch error rate from {{ $labels.source }}"
+          description: "More than 50% of recent fetch attempts against {{ $labels.source }} are failing. It may have changed its API or be rate-limiting us."
+
+      - alert: HighAPIErrorRate
+        expr: |
+          rate(http_requests_total{handler!~"/metrics|/health", status=~"5.."}[5m])
+          / rate(http_requests_total{handler!~"/metrics|/health"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx error rate above 5%"
+          description: "Check API logs — this usually means the DB is unreachable or a route has an unhandled bug."
+
+      - alert: RepeatedDBConnectionRetries
+        expr: increase(scoring_db_connect_retries_total[10m]) > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scoring worker is repeatedly retrying its DB connection"
+          description: "This may indicate TimescaleDB is flapping, under load, or unreachable. The worker is self-healing via backoff, but investigate if this persists."
