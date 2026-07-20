@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
@@ -35,6 +33,8 @@ services:
     build: ./services/ingestion
     restart: unless-stopped
     env_file: .env
+    ports:
+      - "9101:9101"  # Prometheus metrics
     depends_on:
       redis:
         condition: service_healthy
@@ -43,6 +43,8 @@ services:
     build: ./services/scoring
     restart: unless-stopped
     env_file: .env
+    ports:
+      - "9102:9102"  # Prometheus metrics
     depends_on:
       redis:
         condition: service_healthy
@@ -71,5 +73,38 @@ services:
     depends_on:
       - api
 
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+      - ingestion
+      - scoring
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./infra/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   timescale_data:
+  prometheus_data:
+  grafana_data:
