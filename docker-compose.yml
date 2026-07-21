@@ -97,9 +97,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
-      - ./infra/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./infra/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
