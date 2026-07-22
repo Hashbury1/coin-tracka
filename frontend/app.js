@@ -20,6 +20,7 @@ let rawResults = [];
 let activeChain = "all";
 let sortKey = "composite_score";
 let sortDir = "desc"; // 'asc' | 'desc'
+const watched = new Set();
 
 function tickClock() {
   clockEl.textContent = new Date().toLocaleTimeString("en-GB");
@@ -92,18 +93,21 @@ function renderStats(rows) {
   statTop.textContent = top.symbol;
 }
 
+const starIcon = `<svg viewBox="0 0 16 16"><path d="M8 1.6l1.9 4.2 4.5.5-3.4 3.1.9 4.5L8 11.7l-3.9 2.2.9-4.5-3.4-3.1 4.5-.5z" fill="currentColor"/></svg>`;
+
 function renderRows(rows) {
   const filtered = applyFilterSortSearch(rows);
   resultCount.textContent = `${filtered.length} token${filtered.length === 1 ? "" : "s"}`;
 
   if (!filtered.length) {
-    boardBody.innerHTML = `<tr><td colspan="8" class="empty">No tokens match the current filters</td></tr>`;
+    boardBody.innerHTML = `<tr><td colspan="9" class="empty">No tokens match the current filters</td></tr>`;
     return;
   }
 
   boardBody.innerHTML = filtered
-    .map(
-      (r, i) => `
+    .map((r, i) => {
+      const isWatched = watched.has(r.token_id);
+      return `
       <tr>
         <td class="rank-cell">${i + 1}</td>
         <td>
@@ -118,8 +122,13 @@ function renderRows(rows) {
         <td><span class="score-num ${scoreClass(r.momentum_score)}">${r.momentum_score.toFixed(0)}</span></td>
         <td><span class="score-num ${scoreClass(r.liquidity_score)}">${r.liquidity_score.toFixed(0)}</span></td>
         <td><span class="composite-cell ${scoreClass(r.composite_score)}">${r.composite_score.toFixed(1)}</span></td>
-      </tr>`
-    )
+        <td>
+          <button class="watch-btn ${isWatched ? "watched" : ""}" data-token="${r.token_id}" title="Toggle watchlist">
+            ${starIcon}
+          </button>
+        </td>
+      </tr>`;
+    })
     .join("");
 }
 
@@ -137,7 +146,7 @@ async function loadData() {
     renderRows(rawResults);
   } catch (err) {
     setConnected(false);
-    boardBody.innerHTML = `<tr><td colspan="8" class="empty">Could not reach API — is docker compose running?</td></tr>`;
+    boardBody.innerHTML = `<tr><td colspan="9" class="empty">Could not reach API — is docker compose running?</td></tr>`;
     console.error("loadData failed", err);
   }
 }
@@ -154,12 +163,25 @@ refreshBtn.addEventListener("click", loadData);
 searchInput.addEventListener("input", () => renderRows(rawResults));
 
 chainFilters.addEventListener("click", (e) => {
-  const chip = e.target.closest(".chip");
-  if (!chip) return;
-  chainFilters.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
-  chip.classList.add("active");
-  activeChain = chip.dataset.chain;
+  const tab = e.target.closest(".segment-tab");
+  if (!tab) return;
+  chainFilters.querySelectorAll(".segment-tab").forEach((t) => t.classList.remove("active"));
+  tab.classList.add("active");
+  activeChain = tab.dataset.chain;
   renderRows(rawResults);
+});
+
+boardBody.addEventListener("click", (e) => {
+  const btn = e.target.closest(".watch-btn");
+  if (!btn) return;
+  const tokenId = btn.dataset.token;
+  if (watched.has(tokenId)) {
+    watched.delete(tokenId);
+    btn.classList.remove("watched");
+  } else {
+    watched.add(tokenId);
+    btn.classList.add("watched");
+  }
 });
 
 document.querySelectorAll("th.sortable").forEach((th) => {
@@ -183,4 +205,3 @@ document.querySelectorAll("th.sortable").forEach((th) => {
 
 loadData();
 setInterval(loadData, POLL_MS);
-
