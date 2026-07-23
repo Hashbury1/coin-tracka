@@ -68,8 +68,9 @@ async def ensure_token(pool: asyncpg.Pool, tick: dict) -> None:
 async def write_tick(pool: asyncpg.Pool, tick: dict) -> None:
     await pool.execute(
         """
-        INSERT INTO ticks (time, token_id, price_usd, volume_24h_usd, liquidity_usd, market_cap_usd)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO ticks (time, token_id, price_usd, volume_24h_usd, liquidity_usd,
+                            market_cap_usd, holder_count, top10_concentration_pct, social_mentions_1h)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT DO NOTHING
         """,
         datetime.now(timezone.utc),
@@ -78,6 +79,9 @@ async def write_tick(pool: asyncpg.Pool, tick: dict) -> None:
         tick.get("volume_24h_usd", 0),
         tick.get("liquidity_usd", 0),
         tick.get("market_cap_usd", 0),
+        tick.get("holder_count"),
+        tick.get("top10_concentration_pct"),
+        tick.get("social_mentions_1h"),
     )
 
 
@@ -126,7 +130,8 @@ async def fetch_recent_ticks(pool: asyncpg.Pool) -> list[asyncpg.Record]:
     """
     return await pool.fetch(
         """
-        SELECT token_id, time, price_usd, volume_24h_usd, liquidity_usd
+        SELECT token_id, time, price_usd, volume_24h_usd, liquidity_usd,
+               holder_count, top10_concentration_pct, social_mentions_1h
         FROM ticks
         WHERE time > now() - ($1 * INTERVAL '1 minute')
         ORDER BY token_id, time ASC
@@ -160,21 +165,32 @@ async def score_loop(pool: asyncpg.Pool) -> None:
 
             prices = [r["price_usd"] for r in group]
             volumes = [r["volume_24h_usd"] or 0 for r in group]
-            liquidity = group[-1]["liquidity_usd"] or 0  # most recent liquidity reading
+            latest = group[-1]  # most recent reading for point-in-time fields
+            liquidity = latest["liquidity_usd"] or 0
 
-            result = score_token(prices, volumes, liquidity, MIN_LIQUIDITY_USD)
+            result = score_token(
+                prices,
+                volumes,
+                liquidity,
+                MIN_LIQUIDITY_USD,
+                holder_count=latest["holder_count"],
+                top10_concentration_pct=latest["top10_concentration_pct"],
+                social_mentions_1h=latest["social_mentions_1h"],
+            )
 
             try:
                 await pool.execute(
                     """
                     INSERT INTO scores (time, token_id, volatility_score, momentum_score,
-                                         liquidity_score, composite_score, window_label)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                                         liquidity_score, holder_safety_score, social_score,
+                                         composite_score, window_label)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT DO NOTHING
                     """,
                     now, token_id,
                     result["volatility_score"], result["momentum_score"],
-                    result["liquidity_score"], result["composite_score"],
+                    result["liquidity_score"], result["holder_safety_score"],
+                    result["social_score"], result["composite_score"],
                     "rolling",
                 )
                 scored += 1

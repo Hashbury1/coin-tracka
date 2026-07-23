@@ -13,6 +13,11 @@ import numpy as np
 WEIGHT_VOLATILITY = float(os.getenv("WEIGHT_VOLATILITY", "0.4"))
 WEIGHT_MOMENTUM = float(os.getenv("WEIGHT_MOMENTUM", "0.4"))
 WEIGHT_LIQUIDITY = float(os.getenv("WEIGHT_LIQUIDITY", "0.2"))
+# Both default to 0 so composite_score behaves exactly as before unless
+# you explicitly opt in by setting these in .env once enrichment data
+# (holder concentration / social mentions) is flowing.
+WEIGHT_HOLDER_SAFETY = float(os.getenv("WEIGHT_HOLDER_SAFETY", "0.0"))
+WEIGHT_SOCIAL = float(os.getenv("WEIGHT_SOCIAL", "0.0"))
 
 
 def log_returns(prices: list[float]) -> np.ndarray:
@@ -72,14 +77,76 @@ def liquidity_score(liquidity_usd: float, min_liquidity_usd: float = 20_000) -> 
     return round(min(100.0, 40 + 15 * math.log10(liquidity_usd / min_liquidity_usd + 1)), 2)
 
 
-def composite_score(vol_score: float, mom_score: float, liq_score: float) -> float:
+def holder_safety_score(holder_count: int | None, top10_concentration_pct: float | None) -> float | None:
+    """
+    Risk signal, same spirit as liquidity_score: high concentration in a
+    handful of wallets means a small group can dump on everyone else at
+    any time, regardless of how good the price action looks. Returns None
+    (rather than a fake neutral score) when no holder data was fetched for
+    this token, so composite_score can correctly exclude it from the
+    weighted average instead of silently treating "unknown" as "safe".
+    """
+    if holder_count is None and top10_concentration_pct is None:
+        return None
+
+    components = []
+
+    if top10_concentration_pct is not None:
+        # e.g. top 10 wallets holding 80% -> score of 20 (risky);
+        # holding 10% -> score of 90 (broadly distributed, safer)
+        components.append(max(0.0, 100 - top10_concentration_pct))
+
+    if holder_count is not None and holder_count > 0:
+        # Diminishing-returns log scale: 10 holders -> ~20, 1000 -> ~60, 100k -> ~100
+        components.append(min(100.0, 20 * math.log10(holder_count + 1)))
+
+    if not components:
+        return None
+    return round(sum(components) / len(components), 2)
+
+
+def social_score(mentions_1h: int | None) -> float | None:
+    """
+    Social mention velocity as a buzz signal. Meme coins are frequently
+    driven more by social momentum than by any on-chain fundamental, so
+    this is deliberately kept as a separate, optional dimension rather
+    than folded into momentum_score - it only reflects volume of chatter,
+    not whether that chatter is positive or negative.
+    """
+    if mentions_1h is None:
+        return None
+    return round(100 * math.tanh(mentions_1h / 200), 2)
+
+
+def composite_score(
+    vol_score: float,
+    mom_score: float,
+    liq_score: float,
+    holder_score: float | None = None,
+    buzz_score: float | None = None,
+) -> float:
+    """
+    Weighted average across whichever dimensions actually have data.
+    holder_score/buzz_score are None when no enrichment data was fetched
+    for a token (e.g. Birdeye/Moralis/X keys not configured, or the token
+    fell outside the per-cycle enrichment limit) - in that case their
+    weights are excluded from the denominator entirely, rather than
+    treating a missing signal as a zero and unfairly dragging the score down.
+    """
+    weighted_sum = vol_score * WEIGHT_VOLATILITY + mom_score * WEIGHT_MOMENTUM + liq_score * WEIGHT_LIQUIDITY
     total_weight = WEIGHT_VOLATILITY + WEIGHT_MOMENTUM + WEIGHT_LIQUIDITY
-    raw = (
-        vol_score * WEIGHT_VOLATILITY
-        + mom_score * WEIGHT_MOMENTUM
-        + liq_score * WEIGHT_LIQUIDITY
-    )
-    return round(raw / total_weight, 2)
+
+    if holder_score is not None and WEIGHT_HOLDER_SAFETY > 0:
+        weighted_sum += holder_score * WEIGHT_HOLDER_SAFETY
+        total_weight += WEIGHT_HOLDER_SAFETY
+
+    if buzz_score is not None and WEIGHT_SOCIAL > 0:
+        weighted_sum += buzz_score * WEIGHT_SOCIAL
+        total_weight += WEIGHT_SOCIAL
+
+    if total_weight == 0:
+        return 0.0
+    return round(weighted_sum / total_weight, 2)
 
 
 def score_token(
@@ -87,15 +154,22 @@ def score_token(
     volumes: list[float],
     liquidity_usd: float,
     min_liquidity_usd: float = 20_000,
+    holder_count: int | None = None,
+    top10_concentration_pct: float | None = None,
+    social_mentions_1h: int | None = None,
 ) -> dict:
-    """Convenience wrapper returning all four scores for a token's window."""
+    """Convenience wrapper returning every score dimension for a token's window."""
     v = volatility_score(prices)
     m = momentum_score(prices, volumes)
     l = liquidity_score(liquidity_usd, min_liquidity_usd)
-    c = composite_score(v, m, l)
+    h = holder_safety_score(holder_count, top10_concentration_pct)
+    s = social_score(social_mentions_1h)
+    c = composite_score(v, m, l, h, s)
     return {
         "volatility_score": v,
         "momentum_score": m,
         "liquidity_score": l,
+        "holder_safety_score": h,
+        "social_score": s,
         "composite_score": c,
     }

@@ -13,12 +13,18 @@ CREATE TABLE IF NOT EXISTS tokens (
 
 -- Raw price/volume ticks (append-only, high write volume)
 CREATE TABLE IF NOT EXISTS ticks (
-    time            TIMESTAMPTZ NOT NULL,
-    token_id        TEXT NOT NULL REFERENCES tokens(token_id),
-    price_usd       DOUBLE PRECISION NOT NULL,
-    volume_24h_usd  DOUBLE PRECISION,
-    liquidity_usd   DOUBLE PRECISION,
-    market_cap_usd  DOUBLE PRECISION,
+    time                    TIMESTAMPTZ NOT NULL,
+    token_id                TEXT NOT NULL REFERENCES tokens(token_id),
+    price_usd               DOUBLE PRECISION NOT NULL,
+    volume_24h_usd          DOUBLE PRECISION,
+    liquidity_usd           DOUBLE PRECISION,
+    market_cap_usd          DOUBLE PRECISION,
+    -- Enrichment fields — nullable, only populated for the top N tokens
+    -- by liquidity each cycle (see services/ingestion/main.py::enrich_tick),
+    -- since these come from separate, rate-limited per-token API calls.
+    holder_count            INTEGER,
+    top10_concentration_pct DOUBLE PRECISION,  -- % of supply held by top 10 wallets
+    social_mentions_1h      INTEGER,
     PRIMARY KEY (time, token_id)
 );
 
@@ -32,6 +38,8 @@ CREATE TABLE IF NOT EXISTS scores (
     volatility_score    DOUBLE PRECISION NOT NULL,
     momentum_score      DOUBLE PRECISION NOT NULL,
     liquidity_score     DOUBLE PRECISION NOT NULL,
+    holder_safety_score DOUBLE PRECISION,  -- nullable: only computed when holder data was available
+    social_score        DOUBLE PRECISION,  -- nullable: only computed when social data was available
     composite_score     DOUBLE PRECISION NOT NULL,
     window_label        TEXT NOT NULL,      -- '5m' | '1h' | '24h'
     PRIMARY KEY (time, token_id, window_label)
