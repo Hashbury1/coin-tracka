@@ -34,6 +34,18 @@ POLL_CYCLE_DURATION = Histogram(
     "Time taken to complete one full poll cycle across all sources",
 )
 
+ENRICHMENT_HITS = Counter(
+    "ingestion_enrichment_hits_total",
+    "Number of successful enrichment lookups (holder concentration or social mentions)",
+    ["provider"],
+)
+
+ENRICHMENT_ERRORS = Counter(
+    "ingestion_enrichment_errors_total",
+    "Number of enrichment lookups that returned no data or failed",
+    ["provider"],
+)
+
 
 def start_metrics_server(port: int = 9101) -> None:
     start_http_server(port)

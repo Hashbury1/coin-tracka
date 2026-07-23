@@ -10,6 +10,12 @@ class RankedToken(BaseModel):
     volatility_score: float
     momentum_score: float
     liquidity_score: float
+    holder_safety_score: float | None = Field(
+        None, description="0-100, higher = less concentrated in a few wallets. None if no holder data was fetched for this token."
+    )
+    social_score: float | None = Field(
+        None, description="0-100, social mention velocity. None if no social data was fetched for this token."
+    )
     composite_score: float = Field(..., description="0-100, higher = more volatile+momentum, liquidity-weighted")
     as_of: str
 
