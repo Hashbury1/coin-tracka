@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Coin Tracka — Markets</title>
+  <title>Meme Coin Tracker — Markets</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
@@ -12,14 +12,14 @@
   <header class="navbar">
     <div class="logo">
       <span class="logo-mark">M</span>
-      <span class="logo-text">Coin-Tracka</span>
+      <span class="logo-text">MemeTracker</span>
     </div>
-    <nav class="nav-links">
-      <a class="nav-link active">Markets</a>
-      <a class="nav-link">Rankings</a>
-      <a class="nav-link">Watchlist</a>
-      <a class="nav-link">Alerts</a>
-      <a class="nav-link">API Docs</a>
+    <nav class="nav-links" id="nav-links">
+      <a class="nav-link active" data-view="markets">Markets</a>
+      <a class="nav-link" data-view="rankings">Rankings</a>
+      <a class="nav-link" data-view="watchlist">Watchlist <span id="watchlist-count" class="nav-badge" hidden>0</span></a>
+      <a class="nav-link nav-link-disabled" title="Coming soon">Alerts</a>
+      <a class="nav-link nav-link-disabled" title="Coming soon">API Docs</a>
     </nav>
     <div class="nav-right">
       <div class="live-indicator">
@@ -31,7 +31,7 @@
   </header>
 
   <div class="subnav">
-    <div class="breadcrumb">Markets <span class="crumb-sep">/</span> <span class="crumb-current">Meme Coin Rankings</span></div>
+    <div class="breadcrumb">Markets <span class="crumb-sep">/</span> <span class="crumb-current" id="breadcrumb-current">Meme Coin Rankings</span></div>
     <div class="subnav-links">
       <a class="subnav-link active">Rankings</a>
       <a class="subnav-link">Trending</a>
@@ -98,6 +98,9 @@
         </button>
       </div>
     </div>
+
+    <!-- Podium: only shown on the Rankings view -->
+    <div class="podium" id="podium" hidden></div>
 
     <div class="table-wrap">
       <table class="market-table" id="board">
