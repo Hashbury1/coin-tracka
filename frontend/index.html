@@ -17,9 +17,10 @@
     <nav class="nav-links" id="nav-links">
       <a class="nav-link active" data-view="markets">Markets</a>
       <a class="nav-link" data-view="rankings">Rankings</a>
+      <a class="nav-link" data-view="trending">Trending</a>
+      <a class="nav-link" data-view="heatmap">Heat Map</a>
       <a class="nav-link" data-view="watchlist">Watchlist <span id="watchlist-count" class="nav-badge" hidden>0</span></a>
-      <a class="nav-link nav-link-disabled" title="Coming soon">Alerts</a>
-      <a class="nav-link nav-link-disabled" title="Coming soon">API Docs</a>
+      <a class="nav-link" data-view="alerts">Alerts <span id="alerts-count" class="nav-badge nav-badge-amber" hidden>0</span></a>
     </nav>
     <div class="nav-right">
       <div class="live-indicator">
@@ -32,12 +33,6 @@
 
   <div class="subnav">
     <div class="breadcrumb">Markets <span class="crumb-sep">/</span> <span class="crumb-current" id="breadcrumb-current">Meme Coin Rankings</span></div>
-    <div class="subnav-links">
-      <a class="subnav-link active">Rankings</a>
-      <a class="subnav-link">Trending</a>
-      <a class="subnav-link">Heat Map</a>
-      <a class="subnav-link">New Listings</a>
-    </div>
   </div>
 
   <div class="disclaimer-bar">
@@ -45,7 +40,7 @@
   </div>
 
   <main>
-    <div class="segment-row">
+    <div class="segment-row" id="segment-row">
       <div class="segment-tabs" id="chain-filters">
         <button class="segment-tab active" data-chain="all">All Chains</button>
         <button class="segment-tab" data-chain="solana">Solana</button>
@@ -54,7 +49,7 @@
         <button class="segment-tab" data-chain="multi">Multi</button>
       </div>
 
-      <div class="search-box">
+      <div class="search-box" id="search-box">
         <svg viewBox="0 0 16 16" class="search-icon" aria-hidden="true">
           <circle cx="7" cy="7" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/>
           <line x1="11" y1="11" x2="14.5" y2="14.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
@@ -63,7 +58,7 @@
       </div>
     </div>
 
-    <div class="toolbar">
+    <div class="toolbar" id="toolbar">
       <div class="pulse-stats">
         <div class="pulse-stat">
           <span class="pulse-label">Tracked</span>
@@ -102,7 +97,47 @@
     <!-- Podium: only shown on the Rankings view -->
     <div class="podium" id="podium" hidden></div>
 
-    <div class="table-wrap">
+    <!-- Heat map grid: only shown on the Heat Map view -->
+    <div class="heatmap-grid" id="heatmap-grid" hidden></div>
+
+    <!-- Alerts panel: only shown on the Alerts view -->
+    <div class="alerts-panel" id="alerts-panel" hidden>
+      <div class="alerts-form">
+        <h3 class="alerts-heading">Create alert</h3>
+        <div class="alerts-form-row">
+          <select id="alert-token" class="alert-select"></select>
+          <select id="alert-metric" class="alert-select">
+            <option value="composite_score">Composite score</option>
+            <option value="volatility_score">Volatility score</option>
+            <option value="momentum_score">Momentum score</option>
+          </select>
+          <select id="alert-direction" class="alert-select">
+            <option value="above">rises above</option>
+            <option value="below">drops below</option>
+          </select>
+          <input id="alert-threshold" class="alert-input" type="number" min="0" max="100" value="70" />
+          <button id="alert-add-btn" class="alert-add-btn">Add alert</button>
+        </div>
+        <p class="alerts-hint">Checked every 30s against live data. Triggers once per crossing (won't spam while a token stays above/below the threshold).</p>
+      </div>
+
+      <div class="alerts-columns">
+        <div class="alerts-column">
+          <h4 class="alerts-subheading">Active rules</h4>
+          <ul class="alert-rule-list" id="alert-rule-list">
+            <li class="alert-empty">No alert rules yet — add one above.</li>
+          </ul>
+        </div>
+        <div class="alerts-column">
+          <h4 class="alerts-subheading">Recent triggers</h4>
+          <ul class="alert-trigger-list" id="alert-trigger-list">
+            <li class="alert-empty">No triggers yet.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="table-wrap">
       <table class="market-table" id="board">
         <thead>
           <tr>
@@ -131,6 +166,8 @@
       <span>Sources: CoinGecko, DEXScreener</span>
     </div>
   </main>
+
+  <div class="toast-stack" id="toast-stack"></div>
 
   <script src="app.js"></script>
 </body>
