@@ -1,5 +1,6 @@
 const API_BASE = window.location.hostname === "localhost" ? "http://localhost:8000" : "/api";
 const POLL_MS = 30_000;
+const WATCHLIST_STORAGE_KEY = "memetracker_watchlist";
 
 const boardBody = document.getElementById("board-body");
 const connDot = document.getElementById("conn-dot");
@@ -15,12 +16,42 @@ const resultCount = document.getElementById("result-count");
 const statCount = document.getElementById("stat-count");
 const statAvg = document.getElementById("stat-avg");
 const statTop = document.getElementById("stat-top");
+const navLinks = document.getElementById("nav-links");
+const breadcrumbCurrent = document.getElementById("breadcrumb-current");
+const podium = document.getElementById("podium");
+const watchlistCountBadge = document.getElementById("watchlist-count");
 
 let rawResults = [];
 let activeChain = "all";
+let activeView = "markets"; // 'markets' | 'rankings' | 'watchlist'
 let sortKey = "composite_score";
 let sortDir = "desc"; // 'asc' | 'desc'
-const watched = new Set();
+
+function loadWatchlist() {
+  try {
+    const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+function saveWatchlist() {
+  try {
+    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify([...watched]));
+  } catch {
+    // storage unavailable (private browsing etc.) - watchlist just won't persist, non-fatal
+  }
+}
+const watched = loadWatchlist();
+
+function updateWatchlistBadge() {
+  if (watched.size > 0) {
+    watchlistCountBadge.hidden = false;
+    watchlistCountBadge.textContent = watched.size;
+  } else {
+    watchlistCountBadge.hidden = true;
+  }
+}
 
 function tickClock() {
   clockEl.textContent = new Date().toLocaleTimeString("en-GB");
@@ -53,6 +84,10 @@ function chainDotClass(chain) {
 function applyFilterSortSearch(rows) {
   let out = rows;
 
+  if (activeView === "watchlist") {
+    out = out.filter((r) => watched.has(r.token_id));
+  }
+
   if (activeChain !== "all") {
     out = out.filter((r) => r.chain === activeChain);
   }
@@ -64,16 +99,19 @@ function applyFilterSortSearch(rows) {
     );
   }
 
+  const key = activeView === "rankings" ? "composite_score" : sortKey;
+  const dir = activeView === "rankings" ? "desc" : sortDir;
+
   out = [...out].sort((a, b) => {
-    const av = a[sortKey];
-    const bv = b[sortKey];
+    const av = a[key];
+    const bv = b[key];
     let cmp;
     if (typeof av === "string") {
       cmp = av.localeCompare(bv);
     } else {
       cmp = av - bv;
     }
-    return sortDir === "asc" ? cmp : -cmp;
+    return dir === "asc" ? cmp : -cmp;
   });
 
   return out;
@@ -95,12 +133,54 @@ function renderStats(rows) {
 
 const starIcon = `<svg viewBox="0 0 16 16"><path d="M8 1.6l1.9 4.2 4.5.5-3.4 3.1.9 4.5L8 11.7l-3.9 2.2.9-4.5-3.4-3.1 4.5-.5z" fill="currentColor"/></svg>`;
 
+function renderPodium(rows) {
+  const top3 = [...rows].sort((a, b) => b.composite_score - a.composite_score).slice(0, 3);
+  if (!top3.length) {
+    podium.hidden = true;
+    return;
+  }
+  podium.hidden = false;
+  const labels = ["#1", "#2", "#3"];
+  podium.innerHTML = top3
+    .map(
+      (r, i) => `
+      <div class="podium-card podium-${i + 1}">
+        <span class="podium-rank">${labels[i]}</span>
+        <span class="podium-symbol">${r.symbol}</span>
+        <span class="podium-name">${r.name}</span>
+        <span class="podium-score ${scoreClass(r.composite_score)}">${r.composite_score.toFixed(1)}</span>
+      </div>`
+    )
+    .join("");
+}
+
+function renderEmptyState() {
+  if (activeView === "watchlist") {
+    boardBody.innerHTML = `
+      <tr><td colspan="9" class="empty empty-watchlist">
+        <svg viewBox="0 0 16 16" class="empty-watchlist-icon" fill="none" stroke="currentColor" stroke-width="1.3">
+          <path d="M8 1.6l1.9 4.2 4.5.5-3.4 3.1.9 4.5L8 11.7l-3.9 2.2.9-4.5-3.4-3.1 4.5-.5z"/>
+        </svg>
+        <div class="empty-watchlist-title">Your watchlist is empty</div>
+        <div class="empty-watchlist-hint">Click the star on any token in Markets or Rankings to add it here</div>
+      </td></tr>`;
+    return;
+  }
+  boardBody.innerHTML = `<tr><td colspan="9" class="empty">No tokens match the current filters</td></tr>`;
+}
+
 function renderRows(rows) {
   const filtered = applyFilterSortSearch(rows);
   resultCount.textContent = `${filtered.length} token${filtered.length === 1 ? "" : "s"}`;
 
+  if (activeView === "rankings") {
+    renderPodium(rows.length ? applyFilterSortSearch(rows) : []);
+  } else {
+    podium.hidden = true;
+  }
+
   if (!filtered.length) {
-    boardBody.innerHTML = `<tr><td colspan="9" class="empty">No tokens match the current filters</td></tr>`;
+    renderEmptyState();
     return;
   }
 
@@ -130,6 +210,35 @@ function renderRows(rows) {
       </tr>`;
     })
     .join("");
+}
+
+function setView(view) {
+  activeView = view;
+
+  navLinks.querySelectorAll(".nav-link[data-view]").forEach((link) => {
+    link.classList.toggle("active", link.dataset.view === view);
+  });
+
+  const labels = { markets: "Meme Coin Rankings", rankings: "Top Rankings", watchlist: "My Watchlist" };
+  breadcrumbCurrent.textContent = labels[view] || "Meme Coin Rankings";
+
+  document.querySelectorAll("th.sortable").forEach((t) => {
+    t.classList.remove("active-sort");
+    t.querySelector(".sort-arrow").textContent = "";
+  });
+  if (view === "rankings") {
+    const scoreHeader = document.querySelector('th[data-sort="composite_score"]');
+    scoreHeader.classList.add("active-sort");
+    scoreHeader.querySelector(".sort-arrow").textContent = "▼";
+  } else {
+    const activeHeader = document.querySelector(`th[data-sort="${sortKey}"]`);
+    if (activeHeader) {
+      activeHeader.classList.add("active-sort");
+      activeHeader.querySelector(".sort-arrow").textContent = sortDir === "asc" ? "▲" : "▼";
+    }
+  }
+
+  renderRows(rawResults);
 }
 
 async function loadData() {
@@ -171,21 +280,29 @@ chainFilters.addEventListener("click", (e) => {
   renderRows(rawResults);
 });
 
+navLinks.addEventListener("click", (e) => {
+  const link = e.target.closest(".nav-link[data-view]");
+  if (!link) return;
+  setView(link.dataset.view);
+});
+
 boardBody.addEventListener("click", (e) => {
   const btn = e.target.closest(".watch-btn");
   if (!btn) return;
   const tokenId = btn.dataset.token;
   if (watched.has(tokenId)) {
     watched.delete(tokenId);
-    btn.classList.remove("watched");
   } else {
     watched.add(tokenId);
-    btn.classList.add("watched");
   }
+  saveWatchlist();
+  updateWatchlistBadge();
+  renderRows(rawResults);
 });
 
 document.querySelectorAll("th.sortable").forEach((th) => {
   th.addEventListener("click", () => {
+    if (activeView === "rankings") return;
     const key = th.dataset.sort;
     if (sortKey === key) {
       sortDir = sortDir === "asc" ? "desc" : "asc";
@@ -203,5 +320,6 @@ document.querySelectorAll("th.sortable").forEach((th) => {
   });
 });
 
+updateWatchlistBadge();
 loadData();
 setInterval(loadData, POLL_MS);

@@ -366,3 +366,88 @@ table.market-table { width: 100%; border-collapse: collapse; }
   .subnav-links, .search-box { display: none; }
   .market-table .col-chain { display: none; }
 }
+
+/* ---------- nav link states ---------- */
+.nav-link-disabled { color: var(--text-dim); cursor: not-allowed; opacity: 0.5; }
+.nav-link-disabled:hover { color: var(--text-dim); }
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+/* ---------- podium (Rankings view) ---------- */
+.podium {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.podium-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+}
+.podium-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.podium-1 { order: 2; transform: translateY(-8px); border-color: rgba(234, 179, 8, 0.4); }
+.podium-1::before { background: linear-gradient(90deg, #eab308, #fbbf24); }
+.podium-2 { order: 1; }
+.podium-2::before { background: linear-gradient(90deg, #94a3b8, #cbd5e1); }
+.podium-3 { order: 3; }
+.podium-3::before { background: linear-gradient(90deg, #b45309, #d97706); }
+
+.podium-rank {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.podium-1 .podium-rank { color: #eab308; }
+.podium-2 .podium-rank { color: #94a3b8; }
+.podium-3 .podium-rank { color: #d97706; }
+
+.podium-symbol { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.podium-name { font-size: 12px; color: var(--text-dim); margin-top: -4px; }
+.podium-score {
+  font-size: 26px;
+  font-weight: 700;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- watchlist empty state ---------- */
+.empty-watchlist {
+  text-align: center !important;
+  padding: 56px 20px !important;
+}
+.empty-watchlist-icon { width: 32px; height: 32px; color: var(--text-dim); margin-bottom: 10px; }
+.empty-watchlist-title { color: var(--text-secondary); font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.empty-watchlist-hint { color: var(--text-dim); font-size: 11.5px; }
+
+@media (max-width: 640px) {
+  .podium { grid-template-columns: 1fr; }
+  .podium-1, .podium-2, .podium-3 { order: 0; transform: none; }
+}
