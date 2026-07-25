@@ -37,6 +37,29 @@ const alertAddBtn = document.getElementById("alert-add-btn");
 const alertRuleList = document.getElementById("alert-rule-list");
 const alertTriggerList = document.getElementById("alert-trigger-list");
 
+const modalOverlay = document.getElementById("modal-overlay");
+const modalClose = document.getElementById("modal-close");
+const modalSymbol = document.getElementById("modal-symbol");
+const modalName = document.getElementById("modal-name");
+const modalChainBadge = document.getElementById("modal-chain-badge");
+const modalPrice = document.getElementById("modal-price");
+const modalWatchBtn = document.getElementById("modal-watch-btn");
+const modalWatchIcon = document.getElementById("modal-watch-icon");
+const modalWatchLabel = document.getElementById("modal-watch-label");
+const modalChartCanvas = document.getElementById("modal-chart");
+const modalChartEmpty = document.getElementById("modal-chart-empty");
+const modalVolatility = document.getElementById("modal-volatility");
+const modalMomentum = document.getElementById("modal-momentum");
+const modalLiquidity = document.getElementById("modal-liquidity");
+const modalComposite = document.getElementById("modal-composite");
+const modalHolderStat = document.getElementById("modal-holder-stat");
+const modalHolder = document.getElementById("modal-holder");
+const modalSocialStat = document.getElementById("modal-social-stat");
+const modalSocial = document.getElementById("modal-social");
+
+let modalChart = null;
+let currentModalTokenId = null;
+
 let rawResults = [];
 let activeChain = "all";
 let activeView = "markets"; // markets | rankings | trending | heatmap | watchlist | alerts
@@ -204,7 +227,7 @@ function renderHeatmap(rows) {
   heatmapGrid.innerHTML = filtered
     .map(
       (r) => `
-      <div class="heat-tile" style="background:${scoreToColor(r.composite_score)}" title="${r.name} — composite ${r.composite_score.toFixed(1)}">
+      <div class="heat-tile row-clickable" data-token="${r.token_id}" style="background:${scoreToColor(r.composite_score)}" title="${r.name} — composite ${r.composite_score.toFixed(1)}">
         <div>
           <div class="heat-tile-symbol">${r.symbol}</div>
           <div class="heat-tile-chain">${r.chain}</div>
@@ -240,7 +263,7 @@ function renderTable(rows) {
     .map((r, i) => {
       const isWatched = watched.has(r.token_id);
       return `
-      <tr>
+      <tr class="row-clickable" data-token="${r.token_id}">
         <td class="rank-cell">${i + 1}</td>
         <td>
           <div class="token-cell">
@@ -255,7 +278,7 @@ function renderTable(rows) {
         <td><span class="score-num ${scoreClass(r.liquidity_score)}">${r.liquidity_score.toFixed(0)}</span></td>
         <td><span class="composite-cell ${scoreClass(r.composite_score)}">${r.composite_score.toFixed(1)}</span></td>
         <td>
-          <button class="watch-btn ${isWatched ? "watched" : ""}" data-token="${r.token_id}" title="Toggle watchlist">
+          <button class="watch-btn ${isWatched ? "watched" : ""}" data-token="${r.token_id}" data-stop-row-click title="Toggle watchlist">
             ${starIcon}
           </button>
         </td>
@@ -263,6 +286,148 @@ function renderTable(rows) {
     })
     .join("");
 }
+
+// ---------------- token detail modal ----------------
+
+function updateModalWatchButton(tokenId) {
+  const isWatched = watched.has(tokenId);
+  modalWatchBtn.classList.toggle("watched", isWatched);
+  modalWatchIcon.innerHTML = starIcon;
+  modalWatchLabel.textContent = isWatched ? "Watching" : "Watch";
+}
+
+async function fetchTokenHistory(tokenId) {
+  const res = await fetch(`${API_BASE}/api/v1/coins/${encodeURIComponent(tokenId)}/history?hours=24`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+function renderModalChart(points) {
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+
+  if (!points || points.length < 2) {
+    modalChartCanvas.hidden = true;
+    modalChartEmpty.hidden = false;
+    return;
+  }
+  modalChartCanvas.hidden = false;
+  modalChartEmpty.hidden = true;
+
+  const labels = points.map((p) => new Date(p.time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
+  const prices = points.map((p) => p.price_usd);
+  const rising = prices[prices.length - 1] >= prices[0];
+
+  modalChart = new Chart(modalChartCanvas, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        data: prices,
+        borderColor: rising ? "#22c55e" : "#ef4444",
+        backgroundColor: rising ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+        borderWidth: 1.75,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.25,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#545e7d", maxTicksLimit: 6, font: { size: 10 } }, grid: { color: "#1f2740" } },
+        y: { ticks: { color: "#545e7d", font: { size: 10 } }, grid: { color: "#1f2740" } },
+      },
+    },
+  });
+}
+
+async function openTokenModal(tokenId) {
+  const token = rawResults.find((r) => r.token_id === tokenId);
+  if (!token) return;
+
+  currentModalTokenId = tokenId;
+  modalOverlay.hidden = false;
+  document.body.style.overflow = "hidden";
+
+  modalSymbol.textContent = token.symbol;
+  modalName.textContent = token.name;
+  modalChainBadge.innerHTML = `<i class="chain-dot ${chainDotClass(token.chain)}"></i>${token.chain}`;
+  modalPrice.textContent = fmtPrice(token.price_usd);
+  updateModalWatchButton(tokenId);
+
+  modalVolatility.textContent = token.volatility_score.toFixed(1);
+  modalMomentum.textContent = token.momentum_score.toFixed(1);
+  modalLiquidity.textContent = token.liquidity_score.toFixed(1);
+  modalComposite.textContent = token.composite_score.toFixed(1);
+  modalVolatility.className = `modal-stat-value ${scoreClass(token.volatility_score)}`;
+  modalMomentum.className = `modal-stat-value ${scoreClass(token.momentum_score)}`;
+  modalLiquidity.className = `modal-stat-value ${scoreClass(token.liquidity_score)}`;
+  modalComposite.className = `modal-stat-value ${scoreClass(token.composite_score)}`;
+
+  // holder_safety_score / social_score are optional enrichment fields -
+  // only shown when the API actually returned them for this token.
+  if (token.holder_safety_score != null) {
+    modalHolderStat.hidden = false;
+    modalHolder.textContent = token.holder_safety_score.toFixed(1);
+    modalHolder.className = `modal-stat-value ${scoreClass(token.holder_safety_score)}`;
+  } else {
+    modalHolderStat.hidden = true;
+  }
+  if (token.social_score != null) {
+    modalSocialStat.hidden = false;
+    modalSocial.textContent = token.social_score.toFixed(1);
+    modalSocial.className = `modal-stat-value ${scoreClass(token.social_score)}`;
+  } else {
+    modalSocialStat.hidden = true;
+  }
+
+  modalChartCanvas.hidden = true;
+  modalChartEmpty.hidden = true;
+
+  try {
+    const history = await fetchTokenHistory(tokenId);
+    if (currentModalTokenId === tokenId) renderModalChart(history.points);
+  } catch (err) {
+    console.error("fetchTokenHistory failed", err);
+    if (currentModalTokenId === tokenId) renderModalChart([]);
+  }
+}
+
+function closeModal() {
+  modalOverlay.hidden = true;
+  document.body.style.overflow = "";
+  currentModalTokenId = null;
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+}
+
+modalClose.addEventListener("click", closeModal);
+modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) closeModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modalOverlay.hidden) closeModal(); });
+
+modalWatchBtn.addEventListener("click", () => {
+  if (!currentModalTokenId) return;
+  if (watched.has(currentModalTokenId)) watched.delete(currentModalTokenId);
+  else watched.add(currentModalTokenId);
+  saveSet(WATCHLIST_STORAGE_KEY, watched);
+  updateWatchlistBadge();
+  updateModalWatchButton(currentModalTokenId);
+  render();
+});
+
+boardBody.addEventListener("click", (e) => {
+  if (e.target.closest("[data-stop-row-click]")) return; // watch button handled separately
+  const row = e.target.closest("tr[data-token]");
+  if (!row) return;
+  openTokenModal(row.dataset.token);
+});
+
+heatmapGrid.addEventListener("click", (e) => {
+  const tile = e.target.closest(".heat-tile[data-token]");
+  if (!tile) return;
+  openTokenModal(tile.dataset.token);
+});
 
 // ---------------- alerts engine ----------------
 

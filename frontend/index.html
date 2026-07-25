@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header class="navbar">
@@ -168,6 +169,61 @@
   </main>
 
   <div class="toast-stack" id="toast-stack"></div>
+
+  <div class="modal-overlay" id="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-symbol">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="modal-symbol" id="modal-symbol">--</span>
+          <span class="modal-name" id="modal-name">--</span>
+          <span class="chain-badge" id="modal-chain-badge"></span>
+        </div>
+        <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-price-row">
+        <span class="modal-price" id="modal-price">--</span>
+        <button class="modal-watch-btn" id="modal-watch-btn">
+          <span id="modal-watch-icon"></span>
+          <span id="modal-watch-label">Watch</span>
+        </button>
+      </div>
+
+      <div class="modal-chart-wrap">
+        <canvas id="modal-chart" height="220"></canvas>
+        <div class="modal-chart-empty" id="modal-chart-empty" hidden>No price history yet for this token — check back after a few ingestion cycles.</div>
+      </div>
+
+      <div class="modal-stats-grid">
+        <div class="modal-stat">
+          <span class="modal-stat-label">Volatility</span>
+          <span class="modal-stat-value" id="modal-volatility">--</span>
+        </div>
+        <div class="modal-stat">
+          <span class="modal-stat-label">Momentum</span>
+          <span class="modal-stat-value" id="modal-momentum">--</span>
+        </div>
+        <div class="modal-stat">
+          <span class="modal-stat-label">Liquidity</span>
+          <span class="modal-stat-value" id="modal-liquidity">--</span>
+        </div>
+        <div class="modal-stat">
+          <span class="modal-stat-label">Composite</span>
+          <span class="modal-stat-value" id="modal-composite">--</span>
+        </div>
+        <div class="modal-stat" id="modal-holder-stat" hidden>
+          <span class="modal-stat-label">Holder Safety</span>
+          <span class="modal-stat-value" id="modal-holder">--</span>
+        </div>
+        <div class="modal-stat" id="modal-social-stat" hidden>
+          <span class="modal-stat-label">Social Buzz</span>
+          <span class="modal-stat-value" id="modal-social">--</span>
+        </div>
+      </div>
+
+      <div class="modal-footer-note">Statistical ranking only — not financial advice.</div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
