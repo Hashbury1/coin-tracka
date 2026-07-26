@@ -41,12 +41,13 @@ async def fetch_trending_pairs(session: ClientSession, base_url: str, chain: str
                     "token_id": f"{chain}:{pair['pairAddress']}",
                     "symbol": pair["baseToken"]["symbol"],
                     "name": pair["baseToken"]["name"],
-                    "chain": chain,
+                    "chain": pair.get("chainId", chain),  # trust DEXScreener's reported chain
                     "source": "dexscreener",
                     "price_usd": float(pair.get("priceUsd") or 0),
                     "volume_24h_usd": float((pair.get("volume") or {}).get("h24") or 0),
                     "liquidity_usd": float((pair.get("liquidity") or {}).get("usd") or 0),
                     "market_cap_usd": float(pair.get("fdv") or 0),
+                    "token_contract_address": pair["baseToken"]["address"],
                 }
             )
         except (KeyError, TypeError, ValueError) as e:
