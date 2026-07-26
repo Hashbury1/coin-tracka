@@ -10,10 +10,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "services", "sc
 
 from scorer import (  # noqa: E402
     composite_score,
+    holder_safety_score,
     liquidity_score,
     log_returns,
     momentum_score,
     score_token,
+    social_score,
     volatility_score,
 )
 
@@ -85,7 +87,7 @@ class TestCompositeScore:
 
 
 class TestScoreToken:
-    def test_returns_all_four_keys(self):
+    def test_returns_all_score_keys(self):
         result = score_token(
             prices=[1.0, 1.2, 0.9, 1.5],
             volumes=[100, 200, 150, 500],
@@ -95,6 +97,8 @@ class TestScoreToken:
             "volatility_score",
             "momentum_score",
             "liquidity_score",
+            "holder_safety_score",
+            "social_score",
             "composite_score",
         }
 
