@@ -38,6 +38,8 @@ def make_fake_row(**overrides):
         "volatility_score": 42.0,
         "momentum_score": 55.0,
         "liquidity_score": 90.0,
+        "holder_safety_score": None,
+        "social_score": None,
         "composite_score": 60.0,
         "as_of": datetime.now(timezone.utc),
         "price_usd": 0.15,
@@ -193,6 +195,7 @@ class TestRankedCoinsEndpoint:
         expected_keys = {
             "token_id", "symbol", "name", "chain", "price_usd",
             "volatility_score", "momentum_score", "liquidity_score",
+            "holder_safety_score", "social_score",
             "composite_score", "as_of",
         }
         assert set(result.keys()) == expected_keys
