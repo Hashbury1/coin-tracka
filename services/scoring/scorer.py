@@ -161,14 +161,14 @@ def score_token(
     """Convenience wrapper returning every score dimension for a token's window."""
     v = volatility_score(prices)
     m = momentum_score(prices, volumes)
-    l = liquidity_score(liquidity_usd, min_liquidity_usd)
+    liq = liquidity_score(liquidity_usd, min_liquidity_usd)
     h = holder_safety_score(holder_count, top10_concentration_pct)
     s = social_score(social_mentions_1h)
-    c = composite_score(v, m, l, h, s)
+    c = composite_score(v, m, liq, h, s)
     return {
         "volatility_score": v,
         "momentum_score": m,
-        "liquidity_score": l,
+        "liquidity_score": liq,
         "holder_safety_score": h,
         "social_score": s,
         "composite_score": c,

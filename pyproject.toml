@@ -5,4 +5,9 @@ exclude = ["infra", "frontend"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+# E501: line length, enforced by formatter elsewhere, not worth blocking CI on.
+# B008: flake8-bugbear flags Depends(...) as a "function call in default
+# argument," but that's FastAPI's required dependency-injection pattern,
+# not a bug - ignoring this specific rule is the standard fix for FastAPI
+# projects (see https://docs.astral.sh/ruff/rules/function-call-in-default-argument/).
+ignore = ["E501", "B008"]

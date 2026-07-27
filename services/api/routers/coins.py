@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query
+from models import RankedToken, RankedTokenResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_session
-from models import RankedToken, RankedTokenResponse
 
 router = APIRouter(prefix="/api/v1/coins", tags=["coins"])
 
