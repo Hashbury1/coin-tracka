@@ -86,6 +86,62 @@ class TestCompositeScore:
         assert composite_score(0, 0, 0) == 0.0
 
 
+class TestHolderSafetyScore:
+    def test_no_data_returns_none(self):
+        assert holder_safety_score(None, None) is None
+
+    def test_high_concentration_scores_lower_than_low_concentration(self):
+        high_risk = holder_safety_score(holder_count=50, top10_concentration_pct=90)
+        low_risk = holder_safety_score(holder_count=50, top10_concentration_pct=10)
+        assert low_risk > high_risk
+
+    def test_more_holders_scores_higher(self):
+        few = holder_safety_score(holder_count=10, top10_concentration_pct=None)
+        many = holder_safety_score(holder_count=100_000, top10_concentration_pct=None)
+        assert many > few
+
+    def test_partial_data_still_returns_a_score(self):
+        # Only concentration known, holder count missing - should still compute
+        assert holder_safety_score(None, 50) is not None
+        # Only holder count known, concentration missing - should still compute
+        assert holder_safety_score(500, None) is not None
+
+
+class TestSocialScore:
+    def test_no_data_returns_none(self):
+        assert social_score(None) is None
+
+    def test_zero_mentions_is_zero(self):
+        assert social_score(0) == 0.0
+
+    def test_more_mentions_scores_higher(self):
+        assert social_score(1000) > social_score(50)
+
+    def test_capped_at_100(self):
+        assert social_score(1_000_000) <= 100
+
+
+class TestCompositeScoreBackwardCompatibility:
+    """
+    holder_safety_score and social_score must be fully opt-in: with their
+    weights at the 0.0 default (see scorer.py), providing enrichment data
+    should never change the composite score versus not providing it at all.
+    This is what let us ship the enrichment feature without touching
+    anyone's existing rankings until they deliberately raise the weights.
+    """
+
+    def test_composite_unaffected_by_enrichment_data_when_weights_are_zero(self):
+        baseline = composite_score(80, 60, 40)
+        with_enrichment = composite_score(80, 60, 40, holder_score=10, buzz_score=95)
+        assert baseline == with_enrichment
+
+    def test_none_enrichment_scores_are_excluded_cleanly(self):
+        # Should behave identically to not passing them at all
+        explicit_none = composite_score(80, 60, 40, holder_score=None, buzz_score=None)
+        implicit_default = composite_score(80, 60, 40)
+        assert explicit_none == implicit_default
+
+
 class TestScoreToken:
     def test_returns_all_score_keys(self):
         result = score_token(
