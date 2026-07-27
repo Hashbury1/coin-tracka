@@ -1,16 +1,18 @@
 import os
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from models import HealthResponse
 from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
+from routers import coins
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import text
+
 from db import engine
-from models import HealthResponse
-from routers import coins
 
 RATE_LIMIT_PER_MINUTE = os.getenv("RATE_LIMIT_PER_MINUTE", "60")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:8080").split(",")

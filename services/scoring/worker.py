@@ -3,14 +3,11 @@ import itertools
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import asyncpg
 import redis.asyncio as redis
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
-
-from scorer import score_token
 from metrics import (
     DB_CONNECT_RETRIES,
     LAST_SUCCESSFUL_CYCLE_TIMESTAMP,
@@ -20,6 +17,8 @@ from metrics import (
     TOKENS_SCORED,
     start_metrics_server,
 )
+from scorer import score_token
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 structlog.configure(processors=[structlog.processors.JSONRenderer()])
 log = structlog.get_logger(__name__)
@@ -73,7 +72,7 @@ async def write_tick(pool: asyncpg.Pool, tick: dict) -> None:
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT DO NOTHING
         """,
-        datetime.now(timezone.utc),
+        datetime.now(UTC),
         tick["token_id"],
         tick["price_usd"],
         tick.get("volume_24h_usd", 0),
@@ -148,7 +147,7 @@ async def score_loop(pool: asyncpg.Pool) -> None:
     """
     while True:
         await asyncio.sleep(SCORING_INTERVAL_SECONDS)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         scored = 0
         cycle_start = time.monotonic()
 

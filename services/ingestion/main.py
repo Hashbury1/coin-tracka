@@ -5,7 +5,6 @@ import time
 import redis.asyncio as redis
 import structlog
 from aiohttp import ClientSession
-
 from config import settings
 from metrics import (
     ENRICHMENT_ERRORS,
