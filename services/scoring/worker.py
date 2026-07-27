@@ -8,6 +8,9 @@ from datetime import UTC, datetime
 import asyncpg
 import redis.asyncio as redis
 import structlog
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from scorer import score_token
 from metrics import (
     DB_CONNECT_RETRIES,
     LAST_SUCCESSFUL_CYCLE_TIMESTAMP,
@@ -17,8 +20,6 @@ from metrics import (
     TOKENS_SCORED,
     start_metrics_server,
 )
-from scorer import score_token
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 structlog.configure(processors=[structlog.processors.JSONRenderer()])
 log = structlog.get_logger(__name__)
@@ -157,6 +158,22 @@ async def score_loop(pool: asyncpg.Pool) -> None:
             log.error("fetch_recent_ticks_failed", error=str(e))
             continue
 
+        def latest_non_null(group: list, field: str):
+            """
+            Enrichment (holder_count, top10_concentration_pct,
+            social_mentions_1h) only touches a small subset of ticks each
+            cycle - the top N by liquidity, see ingestion's enrich_tick.
+            Blindly reading these fields off the single most recent tick
+            (group[-1]) almost always finds None, even when an earlier
+            tick in the same window has real data sitting right there.
+            Scan backward for the most recent non-null reading instead.
+            """
+            for row in reversed(group):
+                value = row[field]
+                if value is not None:
+                    return value
+            return None
+
         for token_id, group_iter in itertools.groupby(rows, key=lambda r: r["token_id"]):
             group = list(group_iter)
             if len(group) < 2:
@@ -164,17 +181,16 @@ async def score_loop(pool: asyncpg.Pool) -> None:
 
             prices = [r["price_usd"] for r in group]
             volumes = [r["volume_24h_usd"] or 0 for r in group]
-            latest = group[-1]  # most recent reading for point-in-time fields
-            liquidity = latest["liquidity_usd"] or 0
+            liquidity = group[-1]["liquidity_usd"] or 0  # price/liquidity update every cycle, safe to take latest directly
 
             result = score_token(
                 prices,
                 volumes,
                 liquidity,
                 MIN_LIQUIDITY_USD,
-                holder_count=latest["holder_count"],
-                top10_concentration_pct=latest["top10_concentration_pct"],
-                social_mentions_1h=latest["social_mentions_1h"],
+                holder_count=latest_non_null(group, "holder_count"),
+                top10_concentration_pct=latest_non_null(group, "top10_concentration_pct"),
+                social_mentions_1h=latest_non_null(group, "social_mentions_1h"),
             )
 
             try:
