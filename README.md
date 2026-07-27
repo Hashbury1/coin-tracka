@@ -101,7 +101,7 @@ Services after startup:
 
 ## Scoring model
 
-For each token, over rolling windows (5m / 1h / 24h):
+For each token, over rolling windows (5m / 1h / 24h) chart:
 
 - **Volatility score** — annualized stddev of log returns
 - **Momentum score** — rate of change + volume-spike ratio (current volume vs 24h average)
@@ -161,7 +161,7 @@ dashboard on first boot (no manual setup needed).
 | Ingestion | `http://localhost:9101/metrics`  | Ticks fetched/pushed, fetch errors by source, low-liquidity filter rate, poll cycle duration |
 | Scoring   | `http://localhost:9102/metrics`  | Tokens scored, cycle duration, DB connect retries, seconds since last successful cycle |
 
-Open **http://localhost:3000** (Grafana) and the "Meme Coin Tracker — System
+Open **http://localhost:3000** (Grafana) and the "Coin Tracka — System
 Health" dashboard is already there under the default org, pulling from the
 auto-provisioned Prometheus datasource.
 
