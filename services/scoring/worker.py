@@ -8,9 +8,6 @@ from datetime import UTC, datetime
 import asyncpg
 import redis.asyncio as redis
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
-
-from scorer import score_token
 from metrics import (
     DB_CONNECT_RETRIES,
     LAST_SUCCESSFUL_CYCLE_TIMESTAMP,
@@ -20,6 +17,8 @@ from metrics import (
     TOKENS_SCORED,
     start_metrics_server,
 )
+from scorer import score_token
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 structlog.configure(processors=[structlog.processors.JSONRenderer()])
 log = structlog.get_logger(__name__)
