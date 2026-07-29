@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main, staging]
+    branches: [main, develop]
   pull_request:
     branches: [main]
 
@@ -59,6 +59,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute lowercase image prefix
+        # Docker image tags must be fully lowercase. github.repository is
+        # "owner/repo" - even if the repo name itself is lowercase, the
+        # owner/username portion often isn't, so tags built directly from
+        # github.repository can fail with "repository name must be
+        # lowercase". GitHub Actions' expression syntax has no built-in
+        # toLower(), so this is computed via shell instead.
+        run: echo "IMAGE_PREFIX_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -68,23 +77,64 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }} \
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX_LOWER }}/${{ matrix.service }}:${{ github.sha }} \
             ./services/${{ matrix.service }}
 
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX_LOWER }}/${{ matrix.service }}:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: 1
 
       - name: Push image
-        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX_LOWER }}/${{ matrix.service }}:${{ github.sha }}
+
+  # ---------- Full-stack smoke test against real docker-compose ----------
+  # Unlike the mocked unit tests above, this catches real wiring bugs:
+  # DB connectivity, Redis stream hand-off, env var mismatches, port
+  # conflicts, container startup ordering.
+  integration-smoke-test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env for CI
+        run: cp .env.example .env
+
+      - name: Start the stack
+        run: docker compose up --build -d
+
+      - name: Wait for API health check to go green
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health | grep -q '"status":"ok"'; then
+              echo "API is healthy"
+              exit 0
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 5
+          done
+          echo "API never became healthy" && exit 1
+
+      - name: Smoke-test the ranked endpoint
+        run: |
+          curl -sf "http://localhost:8000/api/v1/coins/ranked?limit=5" | tee response.json
+          grep -q '"disclaimer"' response.json
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
 
   # ---------- Deploy to staging (auto on develop branch) ----------
   deploy-staging:
     runs-on: ubuntu-latest
-    needs: build
+    needs: integration-smoke-test
     if: github.ref == 'refs/heads/develop'
     environment: staging
     steps:
@@ -94,7 +144,7 @@ jobs:
   # ---------- Deploy to production (manual approval gate on main) ----------
   deploy-production:
     runs-on: ubuntu-latest
-    needs: build
+    needs: integration-smoke-test
     if: github.ref == 'refs/heads/main'
     environment: production  # configure required reviewers on this environment in repo settings
     steps:
