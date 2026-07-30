@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main, staging]
+    branches: [main, develop]
   pull_request:
     branches: [main]
 
@@ -46,6 +46,7 @@ jobs:
           scan-type: fs
           scan-ref: .
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
           exit-code: 1
 
   # ---------- Build & scan container images ----------
@@ -85,6 +86,12 @@ jobs:
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX_LOWER }}/${{ matrix.service }}:${{ github.sha }}
           severity: HIGH,CRITICAL
+          # Fail only on vulnerabilities with an available fix. Base OS
+          # images routinely carry HIGH/CRITICAL CVEs the upstream distro
+          # hasn't patched yet - blocking every build on those is a
+          # dead end with no actionable resolution. We still fail hard
+          # on anything we could actually fix by bumping a version.
+          ignore-unfixed: true
           exit-code: 1
 
       - name: Push image
