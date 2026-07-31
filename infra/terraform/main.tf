@@ -10,7 +10,7 @@ terraform {
 
   # Remote state - swap for your own bucket/table before applying.
   backend "s3" {
-    bucket         = "meme-tracker-tfstate-CHANGE-ME"
+    bucket         = "meme-tracker"
     key            = "meme-tracker/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "meme-tracker-tf-locks"

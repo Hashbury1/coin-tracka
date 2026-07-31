@@ -8,7 +8,7 @@ variable "project_name" {
   default = "meme-tracker"
 }
 
-variable "environment" {
+variable "staging" {
   type    = string
   default = "staging"
 }
