@@ -42,7 +42,7 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# ---------------- Container registry ----------------
+# -------- Container registry -----
 resource "aws_ecr_repository" "services" {
   for_each             = toset(["ingestion", "scoring", "api"])
   name                 = "${var.project_name}/${each.key}"
