@@ -20,6 +20,8 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_managed" {
 
 # Execution role also needs to read the SSM parameters referenced as
 # container "secrets" above - the managed policy alone doesn't grant this.
+
+
 resource "aws_iam_role_policy" "ecs_task_execution_ssm" {
   name = "${var.project_name}-${var.environment}-ecs-execution-ssm"
   role = aws_iam_role.ecs_task_execution.id
@@ -34,10 +36,11 @@ resource "aws_iam_role_policy" "ecs_task_execution_ssm" {
   })
 }
 
-# ---------------- ECS task role (what the running app itself can call) ----------------
+# ECS task role (what the running app itself can call)
 # Kept empty/minimal on purpose - the app talks to RDS/Redis via network
 # access (security groups), not AWS API calls, so it doesn't need broad
 # permissions. Add scoped statements here only as real needs come up.
+
 resource "aws_iam_role" "ecs_task" {
   name = "${var.project_name}-${var.environment}-ecs-task"
 
@@ -51,10 +54,11 @@ resource "aws_iam_role" "ecs_task" {
   })
 }
 
-# ---------------- GitHub Actions OIDC federation ----------------
+# GitHub Actions OIDC federation
 # Lets CI assume an AWS role for deploys (ECR push, ECS deploy,
 # terraform apply) using short-lived tokens instead of long-lived
 # access keys stored as GitHub secrets.
+
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
