@@ -17,3 +17,4 @@ htmlcov/
 .idea/
 .vscode/
 .env.example
+variables.tf
