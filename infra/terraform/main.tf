@@ -10,7 +10,7 @@ terraform {
 
   # Remote state - swap for your own bucket/table before applying.
   backend "s3" {
-    bucket         = "meme-tracker"
+    bucket         = "meme-tracker-tfstate-CHANGE-ME"
     key            = "meme-tracker/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "meme-tracker-tf-locks"
@@ -22,32 +22,27 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Networking
-
+# ---------------- Networking ----------------
 module "vpc" {
-  source = "terraform-aws-modules/vpc/aws"
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
 
-  name = "coin_tracka"
+  name = "${var.project_name}-${var.environment}"
   cidr = "10.0.0.0/16"
 
-  azs             = ["us-west-1a", "us-west-1b", "us-west-1c"]
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+  azs             = data.aws_availability_zones.available.names
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
 
   enable_nat_gateway = true
-  enable_vpn_gateway = true
-
-  tags = {
-    Terraform = "true"
-    Environment = "dev"
-  }
+  single_nat_gateway = var.environment != "production"
 }
 
 data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# -------- Container registry -----
+# ---------------- Container registry ----------------
 resource "aws_ecr_repository" "services" {
   for_each             = toset(["ingestion", "scoring", "api"])
   name                 = "${var.project_name}/${each.key}"
@@ -64,7 +59,9 @@ resource "aws_db_instance" "timescaledb" {
   engine                 = "postgres"
   engine_version         = "16.4"
   instance_class         = var.db_instance_class
+  multi_az               = var.db_multi_az
   allocated_storage      = 20
+  max_allocated_storage  = 100 # allows storage autoscaling rather than a hard cap
   db_name                = "meme_tracker"
   username               = "meme_admin"
   password               = var.db_password # inject via TF_VAR_db_password, never commit
@@ -72,6 +69,11 @@ resource "aws_db_instance" "timescaledb" {
   db_subnet_group_name   = module.vpc.database_subnet_group_name
   skip_final_snapshot    = var.environment != "production"
   storage_encrypted      = true
+
+  # Multi-AZ gives you a synchronously-replicated standby in a second AZ
+  # that RDS fails over to automatically on primary failure/patching -
+  # this is what actually justifies the cost jump over a single instance.
+  backup_retention_period = var.environment == "production" ? 7 : 1
 }
 
 resource "aws_security_group" "db" {
@@ -91,14 +93,34 @@ resource "aws_security_group" "app" {
   vpc_id      = module.vpc.vpc_id
 }
 
-# ---------------- ElastiCache Redis ----------------
-resource "aws_elasticache_cluster" "redis" {
-  cluster_id           = "${var.project_name}-${var.environment}"
-  engine               = "redis"
-  node_type            = var.redis_node_type
-  num_cache_nodes      = 1
-  parameter_group_name = "default.redis7"
-  security_group_ids   = [aws_security_group.app.id]
+# ---------------- ElastiCache Redis (dedicated node) ----------------
+resource "aws_elasticache_replication_group" "redis" {
+  replication_group_id = "${var.project_name}-${var.environment}"
+  description           = "Redis Streams broker for ingestion -> scoring"
+  engine                = "redis"
+  engine_version        = "7.1"
+  node_type             = var.redis_node_type
+  num_cache_clusters    = 1
+  parameter_group_name  = "default.redis7"
+  subnet_group_name     = aws_elasticache_subnet_group.redis.name
+  security_group_ids    = [aws_security_group.app.id]
+  automatic_failover_enabled = false # single dedicated node; set true + num_cache_clusters=2 for prod HA
+  at_rest_encryption_enabled = true
+  transit_encryption_enabled = true
+}
+
+resource "aws_elasticache_subnet_group" "redis" {
+  name       = "${var.project_name}-${var.environment}-redis"
+  subnet_ids = module.vpc.private_subnets
+}
+
+resource "aws_security_group_rule" "redis_ingress" {
+  type                     = "ingress"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.app.id
+  security_group_id        = aws_security_group.app.id
 }
 
 # NOTE: ECS/EKS service + task definitions, ALB, and IAM roles are
