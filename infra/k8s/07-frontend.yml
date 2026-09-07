@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: coin-tracka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: static-files
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+      volumes:
+        - name: static-files
+          # This path exists because kind-config.yaml's extraMounts copied
+          # your local ./frontend directory into every node at this path -
+          # hostPath here reads it straight off the kind node, same idea as
+          # docker-compose's bind mount, just one layer removed.
+          hostPath:
+            path: /mnt/frontend
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: coin-tracka
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80

@@ -1,0 +1,66 @@
+# ServiceMonitors are Prometheus Operator CRDs - they only take effect
+# after kube-prometheus-stack is installed via Helm (see monitoring/README.md).
+# Applying these before that Helm install will fail with
+# "no matches for kind ServiceMonitor".
+#
+# The `release: prometheus` label matters: kube-prometheus-stack's own
+# Prometheus custom resource has a serviceMonitorSelector that (by default)
+# only picks up ServiceMonitors carrying this label, matching whatever
+# name you gave the Helm release. This assumes:
+#   helm install prometheus prometheus-community/kube-prometheus-stack ...
+# If you used a different release name, change `release: prometheus` below
+# to match, or your metrics simply won't show up with no error anywhere -
+# a classic silent kube-prometheus-stack gotcha.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ingestion
+  namespace: coin-tracka
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: ingestion
+  namespaceSelector:
+    matchNames: ["coin-tracka"]
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: scoring
+  namespace: coin-tracka
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: scoring
+  namespaceSelector:
+    matchNames: ["coin-tracka"]
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api
+  namespace: coin-tracka
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: api
+  namespaceSelector:
+    matchNames: ["coin-tracka"]
+  endpoints:
+    - port: http
+      path: /metrics # served on the same port as the app via prometheus-fastapi-instrumentator
+      interval: 15s

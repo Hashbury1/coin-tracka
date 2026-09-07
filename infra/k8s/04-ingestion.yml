@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion
+  namespace: coin-tracka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingestion
+  template:
+    metadata:
+      labels:
+        app: ingestion
+    spec:
+      initContainers:
+        - name: wait-for-redis
+          image: redis:7-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until redis-cli -h redis ping; do
+                echo "waiting for redis..."; sleep 2;
+              done
+      containers:
+        - name: ingestion
+          image: coin-tracka-ingestion:latest
+          imagePullPolicy: IfNotPresent # loaded into kind directly, never pulled from a registry
+          ports:
+            - name: metrics
+              containerPort: 9101
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef: { name: app-secrets }
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion
+  namespace: coin-tracka
+  labels:
+    app: ingestion
+spec:
+  selector:
+    app: ingestion
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: 9101

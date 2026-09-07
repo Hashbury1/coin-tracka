@@ -1,208 +1,181 @@
-# Meme Coin Volatility Tracker
+# Running Coin Tracka on Local Kubernetes (kind)
 
-A production-style, self-hosted system that ingests real-time crypto market data,
-scores tokens on volatility/momentum/liquidity, and surfaces a ranked dashboard.
+This runs the exact same topology you'd use in a real deployment — real
+Deployments, Services, Ingress, and a real Prometheus Operator — just on a
+kind cluster instead of a cloud provider. No AWS/GCP/Azure involved.
 
-> **Not financial advice.** This project ranks tokens by statistical volatility and
-> momentum signals. It does not predict price direction and should never be
-> presented to end users as investment advice. This disclaimer is intentional —
-> it's part of the design, and worth mentioning in an interview.
-
-## Architecture
-
-```
-                 ┌──────────────┐
-                 │  CoinGecko   │
-                 │  DEXScreener │──┐
-                 └──────────────┘  │
-                                    ▼
-                          ┌───────────────────┐
-                          │  Ingestion Worker  │  (async polling, rate-limit aware)
-                          │  services/ingestion│
-                          └─────────┬──────────┘
-                                    │ publishes raw ticks
-                                    ▼
-                          ┌───────────────────┐
-                          │   Redis Streams    │
-                          └─────────┬──────────┘
-                                    │ consumes
-                                    ▼
-                          ┌───────────────────┐
-                          │   Scoring Worker    │  (volatility / momentum / liquidity)
-                          │  services/scoring    │
-                          └─────────┬──────────┘
-                                    │ writes
-                                    ▼
-                          ┌───────────────────┐
-                          │  TimescaleDB        │  (time-series hypertables)
-                          └─────────┬──────────┘
-                                    │ reads
-                                    ▼
-                          ┌───────────────────┐
-                          │   FastAPI            │  (public REST API)
-                          │  services/api         │
-                          └─────────┬──────────┘
-                                    │
-                                    ▼
-                          ┌───────────────────┐
-                          │  Frontend Dashboard  │
-                          │  frontend/            │
-                          └───────────────────┘
-```
-
-## Tech stack
-
-| Layer          | Choice                          |
-|----------------|----------------------------------|
-| Ingestion      | Python 3.12, asyncio, aiohttp    |
-| Queue          | Redis Streams                    |
-| Scoring engine | Python, pandas, numpy            |
-| Database       | TimescaleDB (Postgres 16)        |
-| API            | FastAPI, SQLAlchemy (async)      |
-| Frontend       | Vanilla JS + Chart.js (no build step, deploys anywhere) |
-| Containers     | Docker / Docker Compose (local)  |
-| CI/CD          | GitHub Actions                   |
-| IaC            | Terraform (stub, cloud-agnostic layout) |
-
-## Repo layout
-
-```
-meme-coin-tracker/
-├── services/
-│   ├── ingestion/   # polls external APIs, pushes raw ticks to Redis Streams
-│   ├── scoring/      # consumes ticks, computes scores, writes to TimescaleDB
-│   └── api/           # FastAPI app serving ranked coin data
-├── db/
-│   └── init.sql       # TimescaleDB schema + hypertables
-├── frontend/           # static dashboard
-├── infra/terraform/    # infra-as-code stub for cloud deploy
-├── .github/workflows/  # CI/CD pipeline
-├── tests/               # unit tests
-└── docker-compose.yml
-```
-
-## Local setup
+## Prerequisites
 
 ```bash
-cp .env.example .env
-# add a free CoinGecko API key (or leave blank to use the public rate-limited tier)
-docker compose up --build
+# Arch Linux
+sudo pacman -S kind kubectl helm
 ```
 
-Services after startup:
-- API: http://localhost:8000/docs (Swagger UI)
-- Frontend: http://localhost:8080
-- TimescaleDB: localhost:5433 (mapped from container port 5432 — 5432 is remapped
-  to avoid clashing with a local Postgres install; internal container-to-container
-  traffic still uses port 5432 via the `timescaledb` hostname, unaffected by this)
-- Redis: localhost:6379
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000 (login: value of `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in `.env`, defaults to `admin`/`admin`)
+## 1. Edit the frontend host path
 
-## Scoring model
-
-For each token, over rolling windows (5m / 1h / 24h) chart:
-
-- **Volatility score** — annualized stddev of log returns
-- **Momentum score** — rate of change + volume-spike ratio (current volume vs 24h average)
-- **Liquidity filter** — tokens below a liquidity floor are excluded (rug-pull risk mitigation)
-- **Composite score** — weighted, normalized 0–100, weights are configurable in `services/scoring/scorer.py`
-
-The model is intentionally simple and explainable rather than a black box — this
-is a deliberate design choice, and a good thing to walk through in an interview.
-
-## Roadmap (build order used for this project)
-
-1. ✅ Ingestion worker → Redis Streams (mocked source first, then real APIs)
-2. ✅ Scoring worker → TimescaleDB
-3. ✅ FastAPI read layer
-4. ✅ Dashboard
-5. ✅ Tests + GitHub Actions CI (unit tests + real docker-compose smoke test)
-6. ✅ Stateless scoring worker (reads its rolling window from TimescaleDB
-   each cycle instead of an in-memory buffer — safe to restart or scale
-   to N replicas with zero coordination)
-7. ⬜ Terraform apply to a real cloud target (AWS/GCP) + CD stage
-8. ✅ Observability: Prometheus + Grafana + alert rules
-9. ⬜ Social sentiment signal (Reddit/Twitter mention velocity)
-
-## Enrichment sources (holder concentration + social buzz)
-
-Beyond price/volume/liquidity, the pipeline can optionally enrich the top
-N tokens by liquidity each cycle (`ENRICHMENT_LIMIT` in `.env`, default 15)
-with two additional signals:
-
-| Source | Chain coverage | Signal | Key required |
-|---|---|---|---|
-| **Birdeye** | Solana | Holder count + top-10 wallet concentration | Free tier at birdeye.so |
-| **Moralis** | BSC, Ethereum | Same, via `/erc20/{address}/holders` and `/owners` | Free tier (40k req/mo) at moralis.io |
-| **X (Twitter) API** | All | Mention velocity (cashtag search, last hour) | **Free tier has no search access** — requires the paid Basic tier or above |
-
-All three are fully optional — leave the corresponding key blank in `.env`
-and that adapter becomes a documented no-op (`services/ingestion/sources/{birdeye,moralis,twitter}.py`),
-returning `None` rather than raising, so ingestion runs exactly as before.
-
-Holder concentration feeds a new `holder_safety_score` (high concentration
-in a few wallets = low score = higher rug-pull risk), and mention count
-feeds `social_score`. Both default to `WEIGHT_HOLDER_SAFETY=0` /
-`WEIGHT_SOCIAL=0` in `.env` — meaning they're computed and returned by the
-API whenever data is available, but excluded from `composite_score` until
-you deliberately opt in by raising those weights above 0. This keeps the
-existing volatility/momentum/liquidity behavior unchanged by default while
-making the new signals easy to turn on.
-
-## Observability
-
-Every service exposes Prometheus metrics; Grafana is pre-provisioned with a
-dashboard on first boot (no manual setup needed).
-
-| Service   | Metrics endpoint                | What it tracks |
-|-----------|----------------------------------|----------------|
-| API       | `http://localhost:8000/metrics`  | Request rate/latency by route and status (via `prometheus-fastapi-instrumentator`), rate-limit rejections |
-| Ingestion | `http://localhost:9101/metrics`  | Ticks fetched/pushed, fetch errors by source, low-liquidity filter rate, poll cycle duration |
-| Scoring   | `http://localhost:9102/metrics`  | Tokens scored, cycle duration, DB connect retries, seconds since last successful cycle |
-
-Open **http://localhost:3000** (Grafana) and the "Coin Tracka — System
-Health" dashboard is already there under the default org, pulling from the
-auto-provisioned Prometheus datasource.
-
-Alert rules live in `infra/prometheus/alerts.yml` and are loaded by
-Prometheus automatically. They cover: any service being unreachable
-(`ServiceDown`), ingestion producing no ticks for 5 minutes, scoring going
-stale for 3+ minutes (the metric end users would actually notice — stale
-rankings), elevated upstream fetch error rates, API 5xx rate above 5%, and
-repeated DB connection retries. These are visible under **Alerts** in
-Prometheus's own UI (http://localhost:9090/alerts) — wiring them to a real
-notification channel (Slack/PagerDuty via Alertmanager) is a natural next
-step for a real production deployment, intentionally left out here to keep
-the local setup dependency-light.
-
-## Known operational caveat
-
-On some Docker Engine versions (observed on Docker Engine + Arch Linux,
-outside Docker Desktop), `docker compose restart <service>` does not
-reliably refresh that container's embedded DNS resolution for other
-services on the same network — you may see `Name or service not known`
-errors for a service that was working fine moments earlier. This isn't a
-bug in this project; it's Docker's networking layer not always
-re-registering DNS state on a lightweight `restart`. The scoring worker's
-retry-with-backoff (`services/scoring/worker.py::create_db_pool`) and
-Compose's `restart: unless-stopped` policy exist specifically to absorb
-this class of transient failure in production, and are why the container
-recovers on its own after a few attempts. If you need to force a clean
-reconnect immediately during local dev, use:
+`kind-config.yaml`'s `extraMounts` needs an absolute path to your repo:
 
 ```bash
-docker compose up -d --force-recreate <service>
+sed -i "s|/home/hashbury/coin-tracka|$(pwd)|" infra/k8s/kind-config.yaml
+grep hostPath infra/k8s/kind-config.yaml
 ```
 
-instead of `docker compose restart <service>` — this fully recreates the
-container's network attachment rather than just restarting its process.
+## 2. Create the cluster
 
-## Security notes
+```bash
+kind create cluster --config infra/k8s/kind-config.yaml --name coin-tracka
+kubectl cluster-info --context kind-coin-tracka
+```
 
-- API keys are never committed; `.env` is gitignored, secrets are injected via
-  environment variables (swap for AWS Secrets Manager / Vault in production).
-- The public API is rate-limited per client IP (see `services/api/main.py`).
-- Dependency and container image scanning run in CI (see workflow file).
-- All external HTTP calls have timeouts and retry/backoff — a single flaky
-  upstream API cannot take the ingestion worker down.
+## 3. Install ingress-nginx (kind-specific manifest — uses hostPort, not LoadBalancer)
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+# Wait for it to actually be ready before continuing - Ingress resources
+# applied before this is ready will sit stuck with no address.
+kubectl wait --namespace ingress-nginx \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller \
+  --timeout=120s
+```
+
+## 4. Build your service images and load them into kind
+
+kind runs its own containerd inside the cluster nodes — it can't see images
+in your local Docker daemon unless you explicitly load them in. This is the
+single most common "ImagePullBackOff on a perfectly good local image" gotcha.
+
+```bash
+docker compose build ingestion scoring api
+kind load docker-image coin-tracka-ingestion:latest --name coin-tracka
+kind load docker-image coin-tracka-scoring:latest --name coin-tracka
+kind load docker-image coin-tracka-api:latest --name coin-tracka
+```
+
+(Adjust the image names above if your actual built tags differ — check
+with `docker images | grep coin-tracka`.)
+
+## 5. Create the namespace, config, and secrets
+
+```bash
+kubectl apply -f infra/k8s/00-namespace-config.yaml
+
+# Real secret, generated FROM your existing .env - never commit this file,
+# and note the command itself never writes .env's contents to disk anywhere new.
+kubectl create secret generic app-secrets --namespace coin-tracka \
+  $(grep -v '^#' .env | grep -v '^$' | sed 's/^/--from-literal=/' | tr '\n' ' ')
+```
+
+## 6. Deploy the stateful services first
+
+```bash
+kubectl apply -f infra/k8s/01-timescaledb-init-configmap.yaml
+kubectl apply -f infra/k8s/02-timescaledb.yaml
+kubectl apply -f infra/k8s/03-redis.yaml
+
+# Wait for both before deploying anything that depends on them -
+# the initContainers in the next step will wait too, but there's no
+# reason to race it.
+kubectl wait --namespace coin-tracka --for=condition=ready pod -l app=redis --timeout=60s
+kubectl rollout status statefulset/timescaledb -n coin-tracka --timeout=120s
+```
+
+## 7. Deploy the app services
+
+```bash
+kubectl apply -f infra/k8s/04-ingestion.yaml
+kubectl apply -f infra/k8s/05-scoring.yaml
+kubectl apply -f infra/k8s/06-api.yaml
+kubectl apply -f infra/k8s/07-frontend.yaml
+kubectl apply -f infra/k8s/08-ingress.yaml
+```
+
+Check everything's actually running before moving on:
+
+```bash
+kubectl get pods -n coin-tracka
+```
+
+If anything shows `Init:0/2` for a long time, it's stuck in an
+initContainer waiting on Redis/TimescaleDB — check with:
+```bash
+kubectl logs -n coin-tracka <pod-name> -c wait-for-timescaledb
+```
+
+## 8. Add hostnames to `/etc/hosts`
+
+```bash
+echo "127.0.0.1 api.coin-tracka.local app.coin-tracka.local grafana.coin-tracka.local" | sudo tee -a /etc/hosts
+```
+
+Test the API:
+```bash
+curl http://api.coin-tracka.local/health
+```
+
+Open the dashboard: `http://app.coin-tracka.local`
+
+## 9. Install kube-prometheus-stack
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace \
+  -f infra/k8s/kube-prometheus-stack-values.yaml
+```
+
+This takes a few minutes — it's installing Prometheus, Alertmanager,
+Grafana, and the Operator itself. Watch it:
+```bash
+kubectl get pods -n monitoring --watch
+```
+
+## 10. Wire up the dashboard and ServiceMonitors
+
+```bash
+kubectl apply -f infra/k8s/10-grafana-dashboard-configmap.yaml
+kubectl apply -f infra/k8s/09-servicemonitors.yaml
+```
+
+Open Grafana: `http://grafana.coin-tracka.local` (login: `admin` / `admin`
+— it's a local cluster, this is fine here, would never be fine anywhere
+real). Your existing "Meme Tracker Overview" dashboard should already be
+imported via the sidecar within about a minute.
+
+## 11. Verify Prometheus is actually scraping your services
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+```
+
+Open `http://localhost:9090/targets` — you should see `ingestion`,
+`scoring`, and `api` all listed with state `UP`. If they're missing
+entirely (not even shown as `DOWN`), the ServiceMonitor's `release: prometheus`
+label doesn't match your Helm release name — see the comment in
+`09-servicemonitors.yaml`.
+
+---
+
+## Tearing it down
+
+```bash
+kind delete cluster --name coin-tracka
+```
+
+This deletes everything — cluster, PVC-backed data, all of it — cleanly,
+since it never touched anything outside the kind container itself.
+
+## What this setup deliberately does NOT do
+
+- No TLS on the Ingress (no cert-manager) — fine locally, would be a real
+  gap in production
+- Grafana admin password is a hardcoded `admin`/`admin` — acceptable only
+  because this never leaves your machine
+- Single replica everywhere — no actual HA being tested, just topology
+- Alertmanager has no real notification channel wired up (no Slack/email) —
+  alerts still evaluate and appear as firing in the UI, they just don't
+  page anyone, which is an honest reflection of "local-only," not a bug
+  to fix here
