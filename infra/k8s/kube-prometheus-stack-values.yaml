@@ -1,0 +1,43 @@
+# helm install prometheus prometheus-community/kube-prometheus-stack \
+#   --namespace monitoring --create-namespace \
+#   -f infra/k8s/kube-prometheus-stack-values.yaml
+#
+# Release name MUST be "prometheus" to match the `release: prometheus`
+# label on the ServiceMonitors in 09-servicemonitors.yaml - see the
+# comment in that file if you want to use a different release name.
+
+grafana:
+  adminUser: admin
+  adminPassword: admin # local kind cluster only - never do this for anything real; use an existing Secret via admin.existingSecret instead
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.coin-tracka.local
+    path: /
+
+  # Auto-imports any ConfigMap labeled grafana_dashboard: "1" in any
+  # namespace matching sidecar.dashboards.searchNamespace (default: ALL) -
+  # this is what picks up 10-grafana-dashboard-configmap.yaml automatically,
+  # no manual "upload dashboard" step needed.
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+
+prometheus:
+  prometheusSpec:
+    # Lets Prometheus pick up ServiceMonitors from any namespace, not just
+    # `monitoring` - required since our app's ServiceMonitors live in the
+    # coin-tracka namespace.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    retention: 3d # short retention is fine for local kind - not trying to hold months of history here
+    resources:
+      requests: { cpu: "200m", memory: "512Mi" }
+      limits: { cpu: "1", memory: "1Gi" }
+
+# Alertmanager left at chart defaults - no real notification channel exists
+# locally (no SNS/Slack webhook), so alert *rules* still evaluate and show
+# as firing in the UI, they just have nowhere to actually page anyone.
+# That's an accurate reflection of local-only monitoring, not a bug.

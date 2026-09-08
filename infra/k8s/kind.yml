@@ -1,0 +1,33 @@
+# kind cluster config for running the full stack locally, production-topology
+# style: real Deployments/Services/Ingress instead of docker-compose.
+#
+# Usage: kind create cluster --config infra/k8s/kind-config.yaml --name coin-tracka
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Maps the host's 80/443 into the node, where ingress-nginx's
+      # controller Service (hostPort mode, see ingress-nginx-kind.yaml)
+      # picks it up. This is the standard kind + ingress-nginx pattern -
+      # a cloud LoadBalancer Service type has no meaning on a local kind
+      # cluster, so ingress-nginx's kind deploy uses hostPort instead.
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+    extraMounts:
+      # Mirrors docker-compose's `./frontend:/usr/share/nginx/html:ro` bind
+      # mount. Edit the host path on the left if your repo isn't at
+      # ~/coin-tracka - kind needs an absolute path here.
+      - hostPath: /home/hashbury/coin-tracka/frontend
+        containerPath: /mnt/frontend
+        readOnly: true

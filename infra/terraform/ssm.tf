@@ -7,7 +7,7 @@
 resource "aws_ssm_parameter" "db_username" {
   name  = "/${var.project_name}/${var.environment}/db_username"
   type  = "String"
-  value = "meme_admin"
+  value = "coin-tracka"
 }
 
 resource "aws_ssm_parameter" "db_password" {
