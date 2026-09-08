@@ -1,19 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api
+  name: scoring
   namespace: coin-tracka
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: api
+      app: scoring
   template:
     metadata:
       labels:
-        app: api
+        app: scoring
     spec:
       initContainers:
+        # docker-compose expressed this as depends_on: condition:
+        # service_healthy - Kubernetes has no equivalent wait-for-dependency
+        # primitive, so an initContainer polling is the standard substitute.
         - name: wait-for-redis
           image: redis:7-alpine
           command:
@@ -33,38 +36,30 @@ spec:
                 echo "waiting for timescaledb..."; sleep 2;
               done
       containers:
-        - name: api
-          image: coin-tracka-api:latest
+        - name: scoring
+          image: coin-tracka-scoring:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - name: http
-              containerPort: 8000
+            - name: metrics
+              containerPort: 9102
           envFrom:
             - configMapRef: { name: app-config }
             - secretRef: { name: app-secrets }
-          readinessProbe:
-            httpGet: { path: /health, port: 8000 }
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          livenessProbe:
-            httpGet: { path: /health, port: 8000 }
-            initialDelaySeconds: 15
-            periodSeconds: 10
           resources:
             requests: { cpu: "100m", memory: "128Mi" }
-            limits: { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: api
+  name: scoring
   namespace: coin-tracka
   labels:
-    app: api
+    app: scoring
 spec:
   selector:
-    app: api
+    app: scoring
   ports:
-    - name: http
-      port: 8000
-      targetPort: 8000
+    - name: metrics
+      port: 9102
+      targetPort: 9102
