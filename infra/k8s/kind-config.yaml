@@ -13,15 +13,19 @@ nodes:
           kubeletExtraArgs:
             node-labels: "ingress-ready=true"
     extraPortMappings:
-      # Maps the host's 80/443 into the node, where ingress-nginx's
-      # controller Service (hostPort mode, see ingress-nginx-kind.yaml)
-      # picks it up. This is the standard kind + ingress-nginx pattern -
-      # a cloud LoadBalancer Service type has no meaning on a local kind
-      # cluster, so ingress-nginx's kind deploy uses hostPort instead.
-      - containerPort: 80
+      # NOTE: this maps host 80/443 -> fixed NodePorts (30080/30443) on the
+      # node, NOT to a pod's hostPort. containerPort here is Docker-level
+      # port publishing on the kind node container - handled by dockerd's
+      # own networking, completely separate from Kubernetes' CNI portmap
+      # plugin. We deliberately avoid pod-level hostPort (the standard
+      # ingress-nginx kind pattern) because it requires iptables extensions
+      # (comment, MARK) that may not exist on every host kernel - routing
+      # through a NodePort Service instead uses kube-proxy's iptables
+      # rules, a different code path that doesn't hit the same issue.
+      - containerPort: 30080
         hostPort: 80
         protocol: TCP
-      - containerPort: 443
+      - containerPort: 30443
         hostPort: 443
         protocol: TCP
     extraMounts:
